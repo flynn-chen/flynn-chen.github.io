@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CTICU Simulator — Post-Cardiac Surgery Decompensation</title>
+<style>
+:root{--bg:#000;--panel:#0b0f14;--edge:#1c2530;--txt:#d7dee8;--dim:#7d8a99;
+ --ecg:#00ff41;--abp:#ff4444;--pap:#ffd23f;--cvp:#4fa8ff;--spo2:#00e5ff;--co2:#e8e8e8;--temp:#ff9ecb;--co:#ffa94d;
+ --hi:#ff2a2a;--med:#ffd400;--ok:#37d67a}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--txt);font-family:"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;overflow:hidden}
+#app{display:grid;grid-template-rows:38px minmax(0,1fr) clamp(220px,32vh,340px);height:100vh;min-height:0}
+/* top bar */
+#top{display:flex;align-items:center;gap:14px;padding:0 12px;background:#0a1018;border-bottom:1px solid var(--edge);font-size:13px}
+#top .bed{font-weight:700;color:#9ecbff}
+#top .pt{color:var(--dim)}
+#alarmBanner{flex:1;text-align:center;font-weight:800;font-size:16px;letter-spacing:.5px;padding:3px 10px;border-radius:3px;min-height:26px}
+#alarmBanner.high{background:var(--hi);color:#fff;animation:blink .5s steps(2) infinite}
+#alarmBanner.med{background:var(--med);color:#000;animation:blink 1.2s steps(2) infinite}
+#alarmBanner.sil{background:#333;color:#ddd}
+@keyframes blink{50%{opacity:.35}}
+#top button,.btn{background:#16212d;color:#cfe3ff;border:1px solid #2b3b4d;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer}
+#top button:hover,.btn:hover{background:#213145}
+#top button.active{background:#2a4a6b}
+#clock{font-variant-numeric:tabular-nums;color:#cfe3ff;font-weight:600}
+/* monitor */
+#monitor{display:grid;grid-template-columns:1fr 250px;min-height:0;height:100%;overflow:hidden;background:#000}
+#waves{display:flex;flex-direction:column;min-height:0}
+.wave{position:relative;flex:1;min-height:0;border-bottom:1px solid #0d1419}
+.wave canvas{position:absolute;inset:0;width:100%;height:100%}
+.wave .lbl{position:absolute;left:8px;top:4px;font-size:12px;font-weight:700;pointer-events:none;line-height:1.15}
+.wave .lbl small{display:block;font-weight:400;font-size:10px;opacity:.75}
+.wave .scale{position:absolute;right:6px;font-size:10px;opacity:.55;pointer-events:none}
+#nums{display:flex;flex-direction:column;min-height:0;overflow:hidden;border-left:1px solid var(--edge);background:#02050a}
+.num{flex:1;min-height:0;overflow:hidden;padding:2px 10px;border-bottom:1px solid #0d1419;display:flex;flex-direction:column;justify-content:center;position:relative;transition:background .2s}
+.num .h{display:flex;justify-content:space-between;font-size:clamp(9px,1.6vh,12px);font-weight:700;line-height:1.1}
+.num .h .lim{font-weight:400;font-size:clamp(8px,1.3vh,10px);opacity:.7;text-align:right;line-height:1.1}
+.num .v{font-size:clamp(20px,4.6vh,46px);font-weight:800;line-height:.95;font-variant-numeric:tabular-nums;letter-spacing:-1px}
+.num .v.sm{font-size:clamp(16px,3.5vh,34px)}
+.num .sub{font-size:clamp(9px,1.5vh,14px);font-weight:600;opacity:.9;margin-top:1px;line-height:1.1;white-space:nowrap;overflow:hidden}
+.num.alarm-high{animation:aflash .5s steps(2) infinite}
+.num.alarm-med{animation:aflashm 1.2s steps(2) infinite}
+@keyframes aflash{50%{background:rgba(255,40,40,.35)}}
+@keyframes aflashm{50%{background:rgba(255,212,0,.22)}}
+.c-ecg{color:var(--ecg)}.c-abp{color:var(--abp)}.c-pap{color:var(--pap)}.c-cvp{color:var(--cvp)}.c-spo2{color:var(--spo2)}.c-co2{color:var(--co2)}.c-temp{color:var(--temp)}.c-co{color:var(--co)}
+#n-hr{flex:1.35}#n-abp,#n-pap{flex:1.15}
+#plethbar{width:8px;height:60%;max-height:52px;background:#062a33;position:absolute;right:10px;bottom:10px;border-radius:2px;overflow:hidden}
+#plethbar i{display:block;background:var(--spo2);width:100%;height:10%;position:absolute;bottom:0}
+/* clinical panel */
+#clinical{display:grid;grid-template-columns:300px 1fr 420px;border-top:2px solid #223142;background:var(--panel);min-height:0;height:100%;overflow:hidden}
+.pane{padding:10px 12px;overflow:auto;min-height:0;border-right:1px solid var(--edge);font-size:13px}
+.pane h3{margin:0 0 6px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--dim)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:12px}
+.kv b{color:#9fb3c8;font-weight:600}
+.drip{display:inline-block;background:#122033;border:1px solid #23405f;border-radius:3px;padding:1px 6px;margin:2px 2px 0 0;font-size:11px;color:#bfe0ff}
+.io{display:flex;gap:10px;margin:6px 0}
+.io div{flex:1;background:#0f161e;border:1px solid var(--edge);border-radius:4px;padding:5px 8px}
+.io span{display:block;font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px}
+.io strong{font-size:18px;font-variant-numeric:tabular-nums}
+table.labs{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:4px}
+table.labs td{padding:1px 4px;border-bottom:1px solid #131b24}
+table.labs td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+table.labs tr.abn td:last-child{color:#ffb347;font-weight:700}
+table.labs tr.new td{background:rgba(79,168,255,.08)}
+#log{display:flex;flex-direction:column;gap:5px}
+.msg{padding:6px 9px;border-radius:5px;background:#0f161e;border-left:3px solid #2b3b4d;line-height:1.35;animation:fade .3s}
+.msg .t{color:var(--dim);font-size:11px;margin-right:6px;font-variant-numeric:tabular-nums}
+.msg .w{font-weight:700;margin-right:5px}
+.msg.Nurse{border-color:#4fa8ff}.msg.Echo{border-color:#b98cff}.msg.Lab{border-color:#ffa94d}.msg.You{border-color:#37d67a;background:#0e1a14}.msg.sys{border-color:#ffd23f;background:#161409}.msg.bad{border-color:#ff4444;background:#1b0d0d}.msg.good{border-color:#37d67a}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}}
+#decision .card{background:#0f161e;border:1px solid #2b3b4d;border-radius:6px;padding:10px 12px}
+#decision .card.pending{border-color:#ffd23f;box-shadow:0 0 0 1px #ffd23f55,0 0 18px #ffd23f22}
+#decision .prompt{font-weight:700;margin-bottom:8px;color:#fff;line-height:1.35}
+.opt{display:block;width:100%;text-align:left;background:#152232;color:#e6eef8;border:1px solid #2b3b4d;border-radius:5px;padding:8px 10px;margin:5px 0;cursor:pointer;font-size:12.5px;line-height:1.35;font-family:inherit}
+.opt:hover:not(:disabled){background:#1f3249;border-color:#4fa8ff}
+.opt:disabled{opacity:.45;cursor:default;text-decoration:line-through}
+.fb{margin-top:8px;padding:9px 10px;border-radius:5px;font-size:12.5px;line-height:1.4}
+.fb.good{background:#0e2a1a;border:1px solid #37d67a}
+.fb.bad{background:#2a0e0e;border:1px solid #ff4444}
+.fb.partial{background:#2a230a;border:1px solid #ffd23f}
+.fb .btn{margin-top:8px;display:inline-block}
+#stats{display:flex;gap:8px;margin-bottom:8px}
+#stats div{flex:1;background:#0f161e;border:1px solid var(--edge);border-radius:4px;padding:4px 8px;font-size:11px;color:var(--dim)}
+#stats strong{display:block;font-size:16px;color:#fff;font-variant-numeric:tabular-nums}
+.muted{color:var(--dim);font-style:italic}
+/* overlays */
+.overlay{position:fixed;inset:0;background:rgba(2,6,12,.94);display:flex;align-items:center;justify-content:center;z-index:50;overflow:auto;padding:20px}
+.overlay .box{max-width:1000px;width:100%;background:#0b1119;border:1px solid #223142;border-radius:10px;padding:26px 30px;box-shadow:0 20px 80px #000}
+.overlay h1{margin:0 0 4px;font-size:26px;letter-spacing:.5px}
+.overlay h1 span{color:#4fa8ff}
+.overlay p.lead{color:#9fb3c8;margin:0 0 18px;line-height:1.5}
+.scn{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.scn .s{background:#0f1720;border:1px solid #223142;border-radius:8px;padding:14px;cursor:pointer;transition:.15s}
+.scn .s:hover{border-color:#4fa8ff;transform:translateY(-2px);background:#12202f}
+.scn .s h4{margin:0 0 6px;font-size:15px;color:#fff}
+.scn .s .tag{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#ffd23f;margin-bottom:6px}
+.scn .s p{margin:0;font-size:12.5px;color:#9fb3c8;line-height:1.45}
+.note{margin-top:16px;font-size:12px;color:var(--dim);line-height:1.5}
+.grade{font-size:44px;font-weight:900;margin:6px 0}
+.grade.pass{color:var(--ok)}.grade.fail{color:var(--hi)}
+.debrief{margin-top:14px;max-height:45vh;overflow:auto;border-top:1px solid #223142;padding-top:10px}
+.debrief .d{margin-bottom:10px;padding:8px 10px;background:#0f161e;border-radius:5px;font-size:12.5px;line-height:1.4}
+.debrief .d .q{font-weight:700;color:#fff}
+.debrief .ok{color:var(--ok)}.debrief .no{color:var(--hi)}.debrief .pa{color:var(--med)}
+.debrief .pearl{color:#9fb3c8;margin-top:3px}
+</style>
+</head>
+<body>
+<div id="app">
+ <div id="top">
+  <span class="bed" id="bedLbl">CTICU 7</span><span class="pt" id="ptLbl">—</span>
+  <div id="alarmBanner"></div>
+  <span id="clock">00:00:00</span>
+  <button id="btnSilence" title="Silence alarms 2 min">🔕 Silence</button>
+  <button id="btnAudio" class="active">🔊 Audio</button>
+  <button id="btnVoice" class="active">🗣 Nurse voice</button><select id="voiceSel" title="Nurse voice" style="background:#16212d;color:#cfe3ff;border:1px solid #2b3b4d;border-radius:4px;font-size:11px;max-width:170px"></select>
+  <button id="btnPause">⏸ Pause</button>
+ </div>
+ <div id="monitor">
+  <div id="waves">
+   <div class="wave" data-ch="ecg"><canvas></canvas><div class="lbl c-ecg">II<small>1.0 mV &nbsp; 25 mm/s</small></div></div>
+   <div class="wave" data-ch="abp"><canvas></canvas><div class="lbl c-abp">ABP<small>mmHg</small></div><div class="scale c-abp" style="top:4px">160</div><div class="scale c-abp" style="bottom:2px">0</div></div>
+   <div class="wave" data-ch="pap"><canvas></canvas><div class="lbl c-pap">PAP<small>mmHg</small></div><div class="scale c-pap" style="top:4px">60</div><div class="scale c-pap" style="bottom:2px">0</div></div>
+   <div class="wave" data-ch="cvp"><canvas></canvas><div class="lbl c-cvp">CVP<small>mmHg</small></div><div class="scale c-cvp" style="top:4px">30</div><div class="scale c-cvp" style="bottom:2px">0</div></div>
+   <div class="wave" data-ch="pleth"><canvas></canvas><div class="lbl c-spo2">Pleth</div></div>
+   <div class="wave" data-ch="co2"><canvas></canvas><div class="lbl c-co2" id="co2Lbl">CO₂<small>mmHg</small></div><div class="scale c-co2" style="top:4px" id="co2Top">60</div><div class="scale c-co2" style="bottom:2px">0</div></div>
+  </div>
+  <div id="nums">
+   <div class="num c-ecg" id="n-hr"><div class="h"><span>HR <small>bpm</small></span><span class="lim">120<br>50</span></div><div class="v" id="v-hr">--</div><div class="sub" id="v-rhythm">Sinus</div></div>
+   <div class="num c-abp" id="n-abp"><div class="h"><span>ABP <small>mmHg</small></span><span class="lim">160<br>90</span></div><div class="v sm" id="v-abp">---/--</div><div class="sub" id="v-map">(--)</div></div>
+   <div class="num c-pap" id="n-pap"><div class="h"><span>PAP <small>mmHg</small></span><span class="lim">45<br>—</span></div><div class="v sm" id="v-pap">--/--</div><div class="sub" id="v-pam">(--)</div></div>
+   <div class="num c-cvp" id="n-cvp"><div class="h"><span>CVP <small>mmHg</small></span><span class="lim">18<br>2</span></div><div class="v sm" id="v-cvp">--</div></div>
+   <div class="num c-spo2" id="n-spo2"><div class="h"><span>SpO₂ <small>%</small></span><span class="lim">100<br>90</span></div><div class="v" id="v-spo2">--</div><div id="plethbar"><i id="plethfill"></i></div></div>
+   <div class="num c-co2" id="n-co2"><div class="h"><span id="co2Name">etCO₂ <small>mmHg</small></span><span class="lim">50<br>25</span></div><div class="v sm" id="v-co2">--</div><div class="sub">awRR <span id="v-rr">--</span></div></div>
+   <div class="num" id="n-misc" style="flex:.9"><div class="h c-temp"><span>Tblood <small>°C</small></span></div><div class="v sm c-temp" id="v-temp" style="font-size:clamp(14px,2.6vh,26px)">--</div><div class="sub c-co" style="font-size:12px">CCO/CI <span id="v-ci">--</span> &nbsp; SvO₂ <span id="v-svo2">--</span>%</div></div>
+  </div>
+ </div>
+ <div id="clinical">
+  <div class="pane" id="ptPane">
+   <h3>Patient</h3><div class="kv" id="ptInfo"></div>
+   <h3 style="margin-top:8px">Infusions</h3><div id="drips"></div>
+   <h3 style="margin-top:8px">Intake / Output</h3>
+   <div class="io"><div><span>Chest tubes</span><strong id="v-ct">--</strong> mL/hr</div><div><span>Urine</span><strong id="v-uo">--</strong> mL/hr</div></div>
+   <h3>Labs</h3><table class="labs" id="labs"></table>
+  </div>
+  <div class="pane"><h3>Bedside events</h3><div id="log"></div></div>
+  <div class="pane" style="border-right:0">
+   <div id="stats"><div>Elapsed<strong id="s-time">0:00</strong></div><div>Decisions<strong id="s-dec">0</strong></div><div>Errors<strong id="s-err">0</strong></div><div>Lactate<strong id="s-lact">--</strong></div></div>
+   <h3>Management</h3><div id="decision"></div>
+  </div>
+ </div>
+</div>
+<div class="overlay" id="startOv"><div class="box">
+ <h1>CTICU <span>Simulator</span> — Post-Cardiac Surgery Decompensation</h1>
+ <p class="lead">You are the fellow covering the cardiothoracic ICU overnight. Watch the monitor, listen to the nurse, and choose the right management at each decision point. Physiology responds to your choices — and keeps deteriorating while you hesitate. Three errors, or a MAP below 40 for too long, and your patient arrests.</p>
+ <div class="scn" id="scnList"></div>
+ <p class="note">🔊 Turn your sound on. Pulse tone pitch tracks SpO₂; IEC-style alarm tones indicate priority. The nurse speaks through your browser's speech synthesis (toggle in the top bar). Based on STS/EACTS/CSU-ALS guidance; for education only — not clinical advice.</p>
+</div></div>
+<div class="overlay" id="endOv" style="display:none"><div class="box">
+ <h1 id="endTitle"></h1><div class="grade" id="endGrade"></div><p class="lead" id="endText"></p>
+ <div class="debrief" id="debrief"></div>
+ <p style="margin-top:14px"><button class="btn" id="btnRestart" style="font-size:14px;padding:8px 16px">↩ Choose another scenario</button></p>
+</div></div>
+<script>
+'use strict';
+const $=s=>document.querySelector(s);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const gauss=(x,mu,s)=>{const d=(x-mu)/s;return Math.exp(-0.5*d*d);};
+const rnd=Math.random;
+const fmt=t=>{const m=Math.floor(t/60),s=Math.floor(t%60);return m+':'+(s<10?'0':'')+s;};
+
+/* ---------------- physiology state ---------------- */
+const KEYS=['hr','sbp','dbp','cvp','pas','pad','spo2','rr','etco2','temp','ct','uo','ci','svo2','lact','ppv'];
+const TAU ={hr:6,sbp:8,dbp:8,cvp:10,pas:10,pad:10,spo2:12,rr:8,etco2:12,temp:90,ct:15,uo:20,ci:15,svo2:15,lact:40,ppv:10};
+const V={},T={};
+const sim={t:0,rhythm:'sinus',intubated:true,beats:[],nextBeat:0,respPhase:0,cprActive:false,lowMapTime:0,drips:[],labs:{},pacer:'',paused:false,running:false,startClock:0};
+const disp={hr:null,sbp:null,dbp:null,pas:null,pad:null};
+const pulseless=()=>sim.rhythm==='vf'||sim.rhythm==='asystole'||sim.rhythm==='pea';
+function setTargets(o){for(const k in o)if(k in TAU)T[k]=o[k];clampT();}
+function setNow(o){for(const k in o){if(k in TAU){T[k]=o[k];V[k]=o[k];}}clampT();}
+function clampT(){T.sbp=clamp(T.sbp,20,230);T.dbp=clamp(T.dbp,10,T.sbp-12);T.hr=clamp(T.hr,0,210);T.cvp=clamp(T.cvp,0,35);T.pas=clamp(T.pas,8,95);T.pad=clamp(T.pad,3,T.pas-4);T.spo2=clamp(T.spo2,40,100);T.rr=clamp(T.rr,0,45);T.etco2=clamp(T.etco2,0,80);T.ct=clamp(T.ct,0,1500);T.uo=clamp(T.uo,0,400);T.ci=clamp(T.ci,0.3,5);T.svo2=clamp(T.svo2,20,90);T.lact=clamp(T.lact,0.5,20);T.ppv=clamp(T.ppv,0,30);}
+function setRhythm(r){sim.rhythm=r;}
+
+function physUpdate(dt){
+  for(const k of KEYS){V[k]+=(T[k]-V[k])*(1-Math.exp(-dt/TAU[k]));}
+  const ph=run.phase;
+  if(run.pending&&ph&&ph.drift){for(const k in ph.drift)T[k]+=ph.drift[k]*dt;clampT();}
+  const map=V.dbp+(V.sbp-V.dbp)/3;
+  if(!pulseless()&&!run.inArrest&&!run.ended){
+    if(map<42){sim.lowMapTime+=dt;if(sim.lowMapTime>20)triggerArrest(run.scn.arrestRhythm);}
+    else sim.lowMapTime=Math.max(0,sim.lowMapTime-dt);
+    if(map<55)T.spo2=Math.min(T.spo2,88+ (map-40)*0.5);
+  }
+  sim.respPhase+=dt*V.rr/60;
+}
+
+/* ---------------- beats ---------------- */
+function newBeat(t){
+  const r=sim.rhythm;const hr=Math.max(V.hr,5);let rr=60/hr;
+  if(r==='afib')rr*=0.62+0.76*rnd();
+  else if(r==='vt')rr=60/Math.max(V.hr,150);
+  else if(r==='vf'||r==='asystole')rr=0.4;
+  else rr*=1+(rnd()-0.5)*0.035;
+  rr=clamp(rr,0.24,3);
+  const resp=Math.sin(2*Math.PI*sim.respPhase);
+  let sbp=V.sbp+V.ppv*0.5*resp,dbp=V.dbp+V.ppv*0.15*resp;
+  if(r==='afib'){const f=clamp(rr/(60/hr),0.6,1.4);const pp=sbp-dbp;sbp=dbp+pp*(0.5+0.5*f);}
+  const b={start:t,rr,rhythm:r,sbp,dbp,pas:V.pas+1.2*resp,pad:V.pad+0.6*resp,pulseless:pulseless(),tC:clamp(0.25+0.12*(rr-0.6),0.18,0.42)};
+  sim.beats.push(b);if(sim.beats.length>10)sim.beats.shift();
+  sim.nextBeat=t+rr;
+  if(!b.pulseless){AU.qrs(V.spo2);disp.sbp=Math.round(disp.sbp==null?sbp:disp.sbp*0.5+sbp*0.5);disp.dbp=Math.round(disp.dbp==null?dbp:disp.dbp*0.5+dbp*0.5);disp.pas=Math.round(b.pas);disp.pad=Math.round(b.pad);}
+  const bs=sim.beats.slice(-5);if(bs.length>1){let s=0;for(let i=1;i<bs.length;i++)s+=bs[i].start-bs[i-1].start;disp.hr=Math.round(60/(s/(bs.length-1)));}
+}
+function beatAt(time){const bs=sim.beats;for(let i=bs.length-1;i>=0;i--)if(bs[i].start<=time)return bs[i];return bs[0];}
+
+/* ---------------- waveform generators ---------------- */
+function ecgVal(t){
+  const r=sim.rhythm;let v=0;
+  if(r==='vf'){const a=0.35+0.28*Math.sin(2*Math.PI*0.37*t);v=a*Math.sin(2*Math.PI*(4.2+1.3*Math.sin(2*Math.PI*0.23*t))*t)+0.2*Math.sin(2*Math.PI*7.3*t+1.2);}
+  else if(r==='asystole'){v=0.025*Math.sin(2*Math.PI*0.3*t);}
+  else{
+    const b=beatAt(t);if(!b)return 0;const x=t-b.start,rr=b.rr;
+    if(r==='vt'){v=x<0.17?1.1*Math.sin(Math.PI*x/0.17):-0.45*gauss(x,0.28,0.06);}
+    else if(r==='paced'){v+=1.3*gauss(x,0.002,0.0015)+0.9*gauss(x,0.035,0.018)-0.4*gauss(x,0.085,0.022)-0.25*gauss(x,b.tC+0.06,0.06);v+=1.0*gauss(x,rr-0.17,0.0015)+0.12*gauss(x,rr-0.11,0.02);}
+    else{const w=r==='pea'?2.4:1;v+=-0.1*gauss(x,0.014*w,0.006*w)+1.0*gauss(x,0.03*w,0.010*w)-0.22*gauss(x,0.05*w,0.008*w)+0.28*gauss(x,b.tC+0.03*(w-1),0.045);
+      if(r==='sinus')v+=0.14*gauss(x,rr-0.15,0.024);
+      if(r==='afib')v+=0.045*Math.sin(2*Math.PI*6.1*t)+0.03*Math.sin(2*Math.PI*8.9*t+1.1)+0.02*Math.sin(2*Math.PI*4.3*t+2);}
+  }
+  if(sim.cprActive)v+=0.3*Math.sin(2*Math.PI*1.75*t)+0.08*Math.sin(2*Math.PI*5.2*t);
+  return v+0.012*(rnd()-0.5)+0.02*Math.sin(2*Math.PI*sim.respPhase);
+}
+function pressShape(x,rr,slow){
+  const up=slow?0.11:0.08;const sysDur=Math.min(slow?0.34:0.30,rr*0.38);
+  if(x<0)return 0;if(x<up)return Math.sin(Math.PI/2*x/up);
+  if(x<sysDur){const u=(x-up)/(sysDur-up);return 1-0.42*u*u*(3-2*u);}
+  const D=Math.max(rr-sysDur,0.05),u=x-sysDur,tau=D*0.55;
+  const base=0.58*(Math.exp(-u/tau)-Math.exp(-D/tau))/(1-Math.exp(-D/tau));
+  return Math.max(0,base+0.07*gauss(u,0.045,0.02));
+}
+const cprP=t=>12+38*Math.pow(Math.max(0,Math.sin(2*Math.PI*1.75*t)),1.4);
+function abpVal(t){const b=beatAt(t-0.16);if(!b)return V.dbp;
+  if(b.pulseless)return(sim.cprActive?cprP(t):9+2*Math.sin(2*Math.PI*sim.respPhase))+0.4*(rnd()-0.5);
+  return b.dbp+(b.sbp-b.dbp)*pressShape(t-0.16-b.start,b.rr,false)+0.4*(rnd()-0.5);}
+function papVal(t){const b=beatAt(t-0.22);if(!b)return V.pad;
+  if(b.pulseless)return(sim.cprActive?cprP(t)*0.5:V.cvp+2)+0.3*(rnd()-0.5);
+  return b.pad+(b.pas-b.pad)*pressShape(t-0.22-b.start,b.rr,true)+0.35*(rnd()-0.5);}
+function cvpVal(t){const b=beatAt(t-0.05);if(!b)return V.cvp;const x=t-0.05-b.start,rr=b.rr,m=V.cvp,r=b.rhythm;
+  let v=m+1.6*Math.sin(2*Math.PI*sim.respPhase)*(sim.intubated?1:-0.7)+0.15*(rnd()-0.5);
+  if(b.pulseless)return v+(sim.cprActive?cprP(t)*0.25:0);
+  const hasA=(r==='sinus'||r==='paced');
+  v+=(hasA?2.2*gauss(x,rr-0.13,0.045):0)+0.9*gauss(x,0.08,0.03)-1.6*gauss(x,0.19,0.06)+1.9*gauss(x,0.38,0.08)-0.8*gauss(x,0.55,0.07);
+  if(r==='afib')v+=0.5*Math.sin(2*Math.PI*6*t);return v;}
+function plethVal(t){const b=beatAt(t-0.28);if(!b||b.pulseless)return 0.03*(rnd()-0.5)+(sim.cprActive?0.3*Math.max(0,Math.sin(2*Math.PI*1.75*t)):0);
+  const amp=0.35+0.65*clamp((b.sbp-b.dbp)/50,0,1);return amp*pressShape(t-0.28-b.start,b.rr,false)+0.01*(rnd()-0.5);}
+function co2Val(){const p=sim.respPhase%1;const e=V.etco2;
+  if(!sim.intubated)return 0.5+0.5*Math.sin(2*Math.PI*p);
+  if(V.rr<1)return 0.3*rnd();
+  if(p<0.36)return 0.4*rnd();
+  const u=(p-0.36)/0.64;
+  if(u<0.08)return e*0.88*Math.sin(Math.PI/2*u/0.08);
+  if(u<0.96)return e*(0.88+0.12*(u-0.08)/0.88)+0.3*(rnd()-0.5);
+  return e*(1-(u-0.96)/0.04);}
+
+/* ---------------- canvas sweep ---------------- */
+const CH=[{id:'ecg',color:'#00ff41',min:-0.7,max:1.5,f:ecgVal,lw:2},{id:'abp',color:'#ff4444',min:0,max:160,f:abpVal,lw:2},{id:'pap',color:'#ffd23f',min:0,max:60,f:papVal,lw:1.8},{id:'cvp',color:'#4fa8ff',min:0,max:30,f:cvpVal,lw:1.8},{id:'pleth',color:'#00e5ff',min:-0.15,max:1.15,f:plethVal,lw:2},{id:'co2',color:'#e8e8e8',min:-2,max:60,f:co2Val,lw:2}];
+const SR=240,PX_PER_S=110;let sweepX=0;
+function setupCanvases(){for(const c of CH){const el=document.querySelector('.wave[data-ch="'+c.id+'"] canvas');const dpr=window.devicePixelRatio||1;c.W=el.clientWidth;c.H=el.clientHeight;el.width=c.W*dpr;el.height=c.H*dpr;c.ctx=el.getContext('2d');c.ctx.setTransform(dpr,0,0,dpr,0,0);c.ctx.lineJoin='round';c.ctx.lineCap='round';c.lastY=null;c.ctx.clearRect(0,0,c.W,c.H);}sweepX=0;}
+function yOf(c,v){if(c.id==='co2'&&!sim.intubated){return c.H-(v*0.8+0.1)*c.H;}return clamp(c.H-4-(v-c.min)/(c.max-c.min)*(c.H-8),1,c.H-1);}
+let sampleAcc=0;
+function drawStep(dt){
+  sampleAcc+=dt*SR;const n=Math.floor(sampleAcc);if(n<=0)return;sampleAcc-=n;
+  const step=PX_PER_S/SR;const gap=22;
+  const x0=sweepX,x1=sweepX+n*step;
+  for(const c of CH){const ctx=c.ctx;ctx.clearRect(x0,0,x1-x0+gap,c.H);if(x1+gap>c.W)ctx.clearRect(0,0,x1+gap-c.W,c.H);}
+  const W=CH[0].W;
+  for(let i=0;i<n;i++){
+    sim.t+=1/SR;if(sim.t>=sim.nextBeat)newBeat(sim.t);
+    const xa=sweepX,xb=sweepX+step;
+    for(const c of CH){const y=yOf(c,c.f(sim.t));const ctx=c.ctx;
+      if(c.lastY!=null&&xb<=c.W){ctx.strokeStyle=c.color;ctx.lineWidth=c.lw;ctx.beginPath();ctx.moveTo(xa,c.lastY);ctx.lineTo(xb,y);ctx.stroke();}
+      c.lastY=y;}
+    sweepX=xb;if(sweepX>=W){sweepX=0;for(const c of CH)c.lastY=null;}
+  }
+}
+
+/* ---------------- audio ---------------- */
+const AU={ctx:null,on:true,voice:true,silencedUntil:0,nextAlarm:0,prio:null,
+ init(){if(this.ctx)return;const C=window.AudioContext||window.webkitAudioContext;this.ctx=new C();this.master=this.ctx.createGain();this.master.gain.value=0.6;this.master.connect(this.ctx.destination);
+   const len=this.ctx.sampleRate*2,buf=this.ctx.createBuffer(1,len,this.ctx.sampleRate),d=buf.getChannelData(0);for(let i=0;i<len;i++)d[i]=rnd()*2-1;
+   const src=this.ctx.createBufferSource();src.buffer=buf;src.loop=true;const bp=this.ctx.createBiquadFilter();bp.type='bandpass';bp.frequency.value=420;bp.Q.value=0.6;this.ventG=this.ctx.createGain();this.ventG.gain.value=0;src.connect(bp);bp.connect(this.ventG);this.ventG.connect(this.master);src.start();},
+ tone(f,dur,vol,type,when){if(!this.ctx||!this.on)return;const t0=this.ctx.currentTime+(when||0);const o=this.ctx.createOscillator();o.type=type||'sine';o.frequency.value=f;const g=this.ctx.createGain();g.gain.setValueAtTime(0,t0);g.gain.linearRampToValueAtTime(vol,t0+0.012);g.gain.setValueAtTime(vol,t0+dur-0.03);g.gain.linearRampToValueAtTime(0,t0+dur);o.connect(g);g.connect(this.master);o.start(t0);o.stop(t0+dur+0.02);},
+ qrs(spo2){const f=clamp(1000-(100-spo2)*30,420,1000);this.tone(f,0.065,0.16);if(f<800)this.tone(f*2,0.065,0.03);},
+ alarm(prio){if(prio==='high'){[0,0.2,0.4,0.78,0.98].forEach(d=>{this.tone(960,0.15,0.3,'triangle',d);this.tone(1440,0.15,0.08,'sine',d);});}
+   else if(prio==='med'){[0,0.24,0.48].forEach(d=>this.tone(680,0.2,0.22,'triangle',d));}
+   else{this.tone(520,0.25,0.15,'triangle',0);}},
+ ping(){this.tone(1200,0.08,0.15,'sine',0);this.tone(1600,0.1,0.15,'sine',0.1);},
+ vent(){if(!this.ctx)return;const p=sim.respPhase%1;let g=0;if(sim.intubated&&this.on&&V.rr>0){g=p<0.36?0.055*Math.sin(Math.PI*p/0.36):0.012;}this.ventG.gain.setTargetAtTime(g,this.ctx.currentTime,0.05);},
+ update(){if(!this.ctx)return;this.vent();const now=performance.now()/1000;if(this.prio&&now>this.silencedUntil&&now>=this.nextAlarm&&this.on){this.alarm(this.prio);this.nextAlarm=now+(this.prio==='high'?3.2:this.prio==='med'?7:20);}},
+ say(text){if(!this.voice||!window.speechSynthesis)return;
+   let s=text.replace(/[—–]/g,', ').replace(/\.\.\./g,', ');
+   const map=[[/\bCVP\b/g,'central venous pressure'],[/\bBP\b/g,'blood pressure'],[/\bSBP\b/g,'systolic blood pressure'],[/\bMAP\b/g,'mean arterial pressure'],[/\bPAP\b/g,'pulmonary artery pressure'],[/\bPA cath(eter)?\b/g,'pulmonary artery catheter'],[/\bPA pressures?\b/g,'pulmonary artery pressures'],[/\bPA\b/g,'pulmonary artery'],[/\bSvO2\b/g,'mixed venous oxygen saturation'],[/\bPaO2\b/g,'arterial oxygen tension'],[/\bPaCO2\b/g,'arterial carbon dioxide tension'],[/\betCO2\b/g,'end tidal carbon dioxide'],[/\bCO2\b/g,'carbon dioxide'],[/\bO2\b/g,'oxygen'],[/\bCI\b/g,'cardiac index'],[/\bCO\b/g,'cardiac output'],[/\bAF\b/g,'atrial fibrillation'],[/\bRVR\b/g,'rapid ventricular response'],[/\bAVR\b/g,'aortic valve replacement'],[/\bMVR\b/g,'mitral valve replacement'],[/\bMCS\b/g,'mechanical circulatory support'],[/\bECMO\b/g,'extracorporeal membrane oxygenation'],[/\bRVAD\b/g,'right ventricular assist device'],[/\bPEA\b/g,'pulseless electrical activity'],[/\bV-?fib\b/gi,'ventricular fibrillation'],[/\bVF\b/g,'ventricular fibrillation'],[/\bVT\b/g,'ventricular tachycardia'],[/\bCPR\b/g,'cardiopulmonary resuscitation'],[/\bROSC\b/g,'return of spontaneous circulation'],[/\bmL\b/g,'milliliters'],[/\bmcg\b/g,'micrograms'],[/\bmEq\b/g,'milliequivalents'],[/\bmmHg\b/g,'millimeters of mercury'],[/\bmag\b/gi,'magnesium'],[/\bMg\b/g,'magnesium'],[/\bK\b/g,'potassium'],[/\bCa\b/g,'calcium'],[/\bHgb\b/g,'hemoglobin'],[/\bPlt\b/g,'platelets'],[/\bINR\b/g,'I N R'],[/\bPTT\b/g,'partial thromboplastin time'],[/\bACT\b/g,'activated clotting time'],[/\bFib\b/g,'fibrinogen'],[/\bTSH\b/g,'thyroid stimulating hormone'],[/\bCr\b/g,'creatinine'],[/\bTEE\b/g,'transesophageal echo'],[/\bTTE\b/g,'transthoracic echo'],[/\bRA\b/g,'right atrium'],[/\bRV\b/g,'right ventricle'],[/\bLV\b/g,'left ventricle'],[/\bIVC\b/g,'inferior vena cava'],[/\bTR\b/g,'tricuspid regurgitation'],[/\bMR\b/g,'mitral regurgitation'],[/\bTAPSE\b/g,'tricuspid annular plane systolic excursion'],[/\bPRBC\b/g,'packed red blood cells'],[/\bFFP\b/g,'fresh frozen plasma'],[/\bMTP\b/g,'massive transfusion protocol'],[/\bpH\b/g,'P H'],[/\bnorepi\b/gi,'norepinephrine'],[/\bepi\b/gi,'epinephrine'],[/\bamio\b/gi,'amiodarone'],[/\bsats\b/gi,'oxygen saturation'],[/\bSpO2\b/g,'oxygen saturation'],[/\bICU\b/g,'intensive care unit'],[/\bCTICU\b/g,'cardiothoracic intensive care unit'],[/\bOR\b/g,'operating room'],[/\bPEEP\b/g,'positive end expiratory pressure'],[/\bPRVC\b/g,'pressure regulated volume control'],[/\bFiO2\b/g,'inspired oxygen fraction'],[/\bIV\b/g,'intravenous'],[/\bAV\b/g,'atrioventricular'],[/\bDDD\b/g,'dual chamber'],[/\bVVI\b/g,'ventricular demand'],[/\bCABG\b/g,'coronary artery bypass grafting'],[/\bSVG\b/g,'saphenous vein graft'],[/\bOM\b/g,'obtuse marginal'],[/\bPOD\b/g,'post operative day'],[/\bCPB\b/g,'cardiopulmonary bypass'],[/\bTXA\b/g,'tranexamic acid'],[/\bDDAVP\b/g,'desmopressin'],[/\bJ\b/g,'joules'],[/\bh\b/g,'hours'],[/(\d+) over (\d+)/g,'$1, over $2'],[/(\d)\/(\d)/g,'$1 over $2']];
+   for(const[a,b]of map)s=s.replace(a,b);
+   speechSynthesis.cancel();
+   const parts=s.split(/(?<=[.!?])\s+/).filter(Boolean);
+   parts.forEach((pt,i)=>{const u=new SpeechSynthesisUtterance(pt);u.rate=0.98;u.pitch=1.0;u.volume=1;const v=this.pickVoice();if(v)u.voice=v;setTimeout(()=>speechSynthesis.speak(u),i*80);});},
+ pickVoice(){const vs=speechSynthesis.getVoices();if(!vs.length)return null;const sel=document.getElementById('voiceSel');if(sel&&sel.value){const v=vs.find(x=>x.voiceURI===sel.value);if(v)return v;}
+   const pref=[/Google US English/i,/Microsoft (Aria|Jenny|Ava|Emma|Sonia|Libby|Michelle).*Natural/i,/Microsoft (Aria|Jenny|Zira)/i,/Samantha/i,/Karen/i,/Moira/i,/Tessa/i,/Fiona/i,/female/i];
+   const us=vs.filter(x=>/^en[-_]US/i.test(x.lang));const pool=us.length?us:vs.filter(x=>/^en/i.test(x.lang));for(const r of pref){const v=pool.find(x=>r.test(x.name));if(v)return v;}return pool[0]||null;},
+ fillVoices(){const sel=document.getElementById('voiceSel');if(!sel||!window.speechSynthesis)return;let vs=speechSynthesis.getVoices().filter(x=>/^en[-_]US/i.test(x.lang));if(!vs.length)vs=speechSynthesis.getVoices().filter(x=>/^en/i.test(x.lang));if(!vs.length)return;const best=this.pickVoice();const cur=sel.value;sel.innerHTML=vs.map(v=>'<option value="'+v.voiceURI+'"'+((cur?v.voiceURI===cur:best&&v.voiceURI===best.voiceURI)?' selected':'')+'>'+v.name.replace(/Microsoft |Google |Online \(Natural\) - English \(.*\)|English \(.*\)/g,'').trim()+'</option>').join('');}
+};
+
+/* ---------------- alarms ---------------- */
+let alarmList=[],alarmIdx=0,alarmCycle=0;
+function evalAlarms(){const a=[];const r=sim.rhythm;const hr=disp.hr;
+  if(r==='vf')a.push(['high','** VFIB **','hr']);else if(r==='asystole')a.push(['high','** ASYSTOLE **','hr']);else if(r==='vt')a.push(['high','** VTAC '+(hr||'')+' **','hr']);
+  else if(hr!=null){if(hr>150)a.push(['high','** HR HIGH '+hr+' **','hr']);else if(hr>120)a.push(['med','HR HIGH '+hr,'hr']);if(hr<40)a.push(['high','** HR LOW '+hr+' **','hr']);else if(hr<50)a.push(['med','HR LOW '+hr,'hr']);}
+  if(r==='afib')a.push(['med','AFIB','hr']);if(r==='pea')a.push(['high','** ABP LOW / NO PULSE **','abp']);
+  if(pulseless()&&r!=='pea')a.push(['high','** ABP LOW **','abp']);
+  else if(disp.sbp!=null){const map=Math.round(disp.dbp+(disp.sbp-disp.dbp)/3);if(disp.sbp<80||map<55)a.push(['high','** ABP LOW '+disp.sbp+'/'+disp.dbp+' ('+map+') **','abp']);else if(disp.sbp<90)a.push(['med','ABP LOW '+disp.sbp+'/'+disp.dbp,'abp']);else if(disp.sbp>160)a.push(['med','ABP HIGH '+disp.sbp+'/'+disp.dbp,'abp']);}
+  const sp=Math.round(V.spo2);if(!pulseless()){if(sp<85)a.push(['high','** SpO2 LOW '+sp+' **','spo2']);else if(sp<90)a.push(['med','SpO2 LOW '+sp,'spo2']);}else a.push(['med','SpO2 NO PULSE','spo2']);
+  if(disp.pas!=null&&disp.pas>45&&!pulseless())a.push(['med','PAP HIGH '+disp.pas+'/'+disp.pad,'pap']);
+  if(V.cvp>18)a.push(['med','CVP HIGH '+Math.round(V.cvp),'cvp']);
+  if(sim.intubated&&V.etco2<25&&V.rr>0)a.push(['med','etCO2 LOW '+Math.round(V.etco2),'co2']);
+  if(V.rr>30)a.push(['med','RR HIGH '+Math.round(V.rr),'co2']);
+  if(V.temp<35)a.push(['low','Tblood LOW '+V.temp.toFixed(1),'misc']);
+  alarmList=a;const rank={high:3,med:2,low:1};let top=null;for(const x of a)if(!top||rank[x[0]]>rank[top[0]])top=x;
+  AU.prio=top?top[0]:null;
+  const banner=$('#alarmBanner');const now=performance.now()/1000;
+  for(const id of['hr','abp','pap','cvp','spo2','co2','misc']){const el=$('#n-'+id);const best=a.filter(x=>x[2]===id).sort((p,q)=>rank[q[0]]-rank[p[0]])[0];el.classList.toggle('alarm-high',!!best&&best[0]==='high');el.classList.toggle('alarm-med',!!best&&best[0]==='med');}
+  if(!top){banner.textContent='';banner.className='';return;}
+  const tops=a.filter(x=>x[0]===top[0]);alarmCycle+=0.5;const shown=tops[Math.floor(alarmCycle/2)%tops.length];
+  if(now<AU.silencedUntil){banner.className='sil';banner.textContent='🔕 '+shown[1]+'   —   SILENCED '+fmt(AU.silencedUntil-now);}
+  else{banner.className=top[0]==='low'?'sil':top[0];banner.textContent=shown[1];}
+}
+
+/* ---------------- numerics ---------------- */
+function renderNums(){const r=sim.rhythm;
+  $('#v-hr').textContent=r==='vf'?'---':r==='asystole'?'0':(disp.hr==null?'--':disp.hr);
+  $('#v-rhythm').textContent={sinus:'Sinus',afib:'Atrial Fib',vt:'V-Tach',vf:'V-Fib',asystole:'Asystole',pea:'PEA',paced:'AV Paced'}[r];
+  if(pulseless()){$('#v-abp').textContent=sim.cprActive?'48/12':'9/8';$('#v-map').textContent=sim.cprActive?'(24) CPR':'(8)';$('#v-pap').textContent='--/--';$('#v-pam').textContent='';$('#v-spo2').textContent='--';}
+  else if(disp.sbp!=null){$('#v-abp').textContent=disp.sbp+'/'+disp.dbp;$('#v-map').textContent='('+Math.round(disp.dbp+(disp.sbp-disp.dbp)/3)+')';$('#v-pap').textContent=disp.pas+'/'+disp.pad;$('#v-pam').textContent='('+Math.round(disp.pad+(disp.pas-disp.pad)/3)+')';$('#v-spo2').textContent=Math.round(V.spo2);}
+  $('#v-cvp').textContent=Math.round(V.cvp);
+  $('#v-co2').textContent=sim.intubated?Math.round(V.etco2):'—';$('#v-rr').textContent=Math.round(V.rr);
+  $('#v-temp').textContent=V.temp.toFixed(1);$('#v-ci').textContent=(pulseless()?0.3:V.ci).toFixed(1);$('#v-svo2').textContent=Math.round(pulseless()?30:V.svo2);
+  $('#v-ct').textContent=Math.round(V.ct);$('#v-uo').textContent=Math.round(V.uo);$('#s-lact').textContent=V.lact.toFixed(1);
+  $('#plethfill').style.height=(pulseless()?2:clamp(plethVal(sim.t)*100,2,100))+'%';
+  const c=new Date(sim.startClock+sim.t*1000);$('#clock').textContent=c.toTimeString().slice(0,8);
+  $('#s-time').textContent=fmt(sim.t);$('#s-dec').textContent=run.history.filter(h=>h.correct===true||h.correct==='partial').length;$('#s-err').textContent=run.errors;
+}
+</script>
+<script>
+/* ---------------- scenario runner ---------------- */
+const run={scn:null,phase:null,phaseId:null,phaseT:0,pending:false,decided:false,fired:new Set(),attempts:[],errors:0,wrongs:0,history:[],ended:false,inArrest:false,survivedArrest:false};
+function log(who,text,cls){const d=document.createElement('div');d.className='msg '+(cls||who);const c=new Date(sim.startClock+sim.t*1000);d.innerHTML='<span class="t">'+c.toTimeString().slice(0,5)+'</span><span class="w">'+who+':</span>'+text;const L=$('#log');L.appendChild(d);L.parentElement.scrollTop=L.parentElement.scrollHeight;if(who==='Nurse'&&cls!=='sys')AU.say(text);}
+const LABN={Hgb:[8,17],Plt:[150,400],INR:[0,1.3],PTT:[25,38],Fib:[200,450],ACT:[80,140],K:[3.5,5.0],Mg:[1.8,2.6],iCa:[1.12,1.32],pH:[7.35,7.45],PaCO2:[35,45],PaO2:[80,500],Lactate:[0,2],BE:[-2,2],SvO2:[60,80],Glu:[70,180],Cr:[0.5,1.2],Trop:[0,0.04]};
+function setLabs(o){for(const k in o)sim.labs[k]=o[k];const t=$('#labs');t.innerHTML='';for(const k in sim.labs){const v=sim.labs[k];const r=LABN[k];const abn=r&&typeof v==='number'&&(v<r[0]||v>r[1]);t.insertAdjacentHTML('beforeend','<tr class="'+(abn?'abn ':'')+(k in o?'new':'')+'"><td>'+k+'</td><td>'+v+'</td></tr>');}
+  log('Lab','Results: '+Object.entries(o).map(([k,v])=>k+' '+v).join(', '));}
+function renderDrips(){$('#drips').innerHTML=sim.drips.length?sim.drips.map(d=>'<span class="drip">'+d+'</span>').join(''):'<span class="muted">none</span>';}
+function renderPt(){const s=run.scn;$('#ptInfo').innerHTML=Object.entries(s.patient).map(([k,v])=>'<b>'+k+'</b><span>'+v+'</span>').join('')+(sim.pacer?'<b>Pacing</b><span>'+sim.pacer+'</span>':'');}
+function applyEffect(o){if(o.d){for(const k in o.d)T[k]+=o.d[k];clampT();}if(o.set)setTargets(o.set);if(o.rhythm)setRhythm(o.rhythm);if(o.drips)sim.drips=o.drips.slice();if(o.addDrips)sim.drips=sim.drips.concat(o.addDrips);if(o.rmDrips)sim.drips=sim.drips.filter(d=>!o.rmDrips.some(x=>d.startsWith(x)));if(o.labs)setLabs(o.labs);if(o.cpr!==undefined)sim.cprActive=o.cpr;if(o.pacer!==undefined){sim.pacer=o.pacer;renderPt();}if(o.intubated!==undefined){setIntubated(o.intubated);}
+  if(o.pause){const back=sim.rhythm;setRhythm('asystole');setTimeout(()=>{if(!run.ended)setRhythm(back);},o.pause*1000);}
+  if(o.msg)setTimeout(()=>{if(!run.ended)log('Nurse',o.msg);},1500);renderDrips();}
+function setIntubated(b){sim.intubated=b;$('#co2Lbl').innerHTML=b?'CO₂<small>mmHg</small>':'Resp<small>impedance</small>';$('#co2Top').textContent=b?'60':'';$('#co2Name').innerHTML=b?'etCO₂ <small>mmHg</small>':'Resp';}
+function enterPhase(id){const ph=run.scn.phases[id];if(!ph){console.error('no phase',id);return;}run.phase=ph;run.phaseId=id;run.phaseT=0;run.fired=new Set();run.pending=false;run.decided=false;run.attempts=[];
+  if(ph.rhythm)setRhythm(ph.rhythm);if(ph.targets)setTargets(ph.targets);if(ph.drips)sim.drips=ph.drips.slice();if(ph.cpr!==undefined)sim.cprActive=ph.cpr;if(ph.pacer!==undefined){sim.pacer=ph.pacer;renderPt();}if(ph.intubated!==undefined)setIntubated(ph.intubated);
+  if(id==='rosc')run.survivedArrest=true;if(ph.narr)log('Event',ph.narr,'sys');renderDrips();renderDecision();}
+function phaseTick(dt){const ph=run.phase;if(!ph||run.ended)return;run.phaseT+=dt;
+  (ph.say||[]).forEach((m,i)=>{if(run.phaseT>=m.t&&!run.fired.has(i)){run.fired.add(i);if(m.text)log(m.who||'Nurse',m.text,m.cls);if(m.targets)setTargets(m.targets);if(m.rhythm)setRhythm(m.rhythm);if(m.labs)setLabs(m.labs);if(m.drips){sim.drips=m.drips.slice();renderDrips();}if(m.cpr!==undefined)sim.cprActive=m.cpr;if(m.pacer!==undefined){sim.pacer=m.pacer;renderPt();}}});
+  if(ph.decision&&!run.pending&&!run.decided&&run.phaseT>=ph.decisionAt){run.pending=true;AU.ping();renderDecision();}
+  if(ph.next&&!ph.decision&&run.phaseT>=(ph.nextAt||20))enterPhase(ph.next);
+  if(ph.end&&run.phaseT>=(ph.endAt||20))endScenario(ph.end);}
+function triggerArrest(kind){if(run.inArrest||run.ended)return;run.inArrest=true;run.pending=false;sim.lowMapTime=0;log('Event','The patient has lost cardiac output.','sys');enterPhase(kind==='vf'?'arrestVF':'arrestPEA');}
+function renderDecision(){const D=$('#decision');const ph=run.phase;if(!ph)return;
+  if(!ph.decision||run.decided){D.innerHTML='<div class="card"><span class="muted">'+(ph.wait||'Observe the monitor and listen to the team. Decisions will be presented as the situation evolves.')+'</span></div>';return;}
+  if(!run.pending){D.innerHTML='<div class="card"><span class="muted">Assessing… gather information from the monitor, the nurse, and the labs.</span></div>';return;}
+  const dec=ph.decision;let h='<div class="card pending"><div class="prompt">⚠ '+dec.prompt+'</div>';
+  dec.options.forEach((o,i)=>{h+='<button class="opt" data-i="'+i+'" '+(run.attempts.includes(i)?'disabled':'')+'>'+String.fromCharCode(65+i)+'. '+o.text+'</button>';});
+  D.innerHTML=h+'</div>';D.querySelectorAll('.opt').forEach(b=>b.onclick=()=>choose(+b.dataset.i));}
+function choose(i){const ph=run.phase,dec=ph.decision,o=dec.options[i];if(run.attempts.includes(i))return;run.attempts.push(i);
+  run.history.push({prompt:dec.prompt,text:o.text,correct:o.correct,feedback:o.feedback,best:dec.options.find(x=>x.correct===true)});
+  log('You',o.text.length>140?o.text.slice(0,140)+'…':o.text);applyEffect(o);
+  let cls,after;
+  if(o.correct===true){cls='good';run.pending=false;run.decided=true;after=()=>enterPhase(o.next||ph.next);}
+  else if(o.correct==='partial'){cls='partial';run.errors+=0.5;run.pending=false;run.decided=true;after=()=>enterPhase(o.next||ph.next);}
+  else{cls='bad';run.errors+=1;run.wrongs+=1;log('Event',o.feedback,'bad');
+    after=()=>{if(run.ended)return;if(o.next){run.pending=false;run.decided=true;enterPhase(o.next);}else if(o.arrest)triggerArrest(o.arrest);else if(run.wrongs>=3&&!run.inArrest){log('Nurse','The pressure is gone — I can\'t feel a pulse!');triggerArrest(run.scn.arrestRhythm);}else renderDecision();};}
+  const D=$('#decision');const card=D.querySelector('.card');card.querySelectorAll('.opt').forEach(b=>b.disabled=true);
+  const fb=document.createElement('div');fb.className='fb '+cls;fb.innerHTML='<b>'+(cls==='good'?'✔ Correct.':cls==='partial'?'◐ Partially correct.':'✘ Incorrect.')+'</b> '+o.feedback+'<br><button class="btn">Continue ▸</button>';
+  card.appendChild(fb);fb.querySelector('.btn').onclick=after;fb.scrollIntoView({behavior:'smooth',block:'nearest'});
+  if(cls!=='bad')setTimeout(()=>{if(fb.isConnected)after();},12000);}
+function endScenario(kind){if(run.ended)return;run.ended=true;run.pending=false;
+  const died=kind==='death';const e=run.errors;let grade,txt;
+  if(died){grade='FAILED — Patient died';txt='Cardiac arrest was not survived. Review the debrief for the decision points that led here.';}
+  else if(e===0){grade='OUTSTANDING';txt='Flawless management. Every decision matched guideline-directed care and the patient stabilized without an arrest.';}
+  else if(e<=2.5&&!run.survivedArrest){grade='PASSED';txt='The patient stabilized. '+e+' error'+(e===1?'':'s')+' along the way — review the debrief.';}
+  else if(e<=2.5){grade='PASSED — with arrest';txt='The patient survived a cardiac arrest that better early decisions would likely have prevented.';}
+  else{grade='FAILED — Excess errors';txt='The patient survived, but '+e+' management errors exceed the passing threshold.';}
+  const pass=grade.startsWith('PASSED')||grade==='OUTSTANDING';
+  $('#endTitle').textContent=run.scn.title;$('#endGrade').textContent=grade;$('#endGrade').className='grade '+(pass?'pass':'fail');$('#endText').textContent=txt+' Total time '+fmt(sim.t)+'.';
+  $('#debrief').innerHTML='<h3 style="margin:0 0 8px;color:#9fb3c8">Debrief</h3>'+run.history.map(h=>'<div class="d"><div class="q">'+h.prompt+'</div><div class="'+(h.correct===true?'ok':h.correct==='partial'?'pa':'no')+'">'+(h.correct===true?'✔':h.correct==='partial'?'◐':'✘')+' '+h.text+'</div><div class="pearl">'+h.feedback+(h.correct!==true&&h.best?'<br><b>Best answer:</b> '+h.best.text:'')+'</div></div>').join('')+'<div class="d"><div class="q">Teaching points</div><div class="pearl">'+run.scn.pearls.map(p=>'• '+p).join('<br>')+'</div></div>';
+  setTimeout(()=>{$('#endOv').style.display='flex';AU.prio=null;},died?4000:2500);}
+
+/* ---------------- main loop ---------------- */
+let lastT=null,alarmAcc=0;
+function frame(ts){requestAnimationFrame(frame);if(!sim.running)return;if(lastT==null)lastT=ts;let dt=Math.min((ts-lastT)/1000,0.1);lastT=ts;if(sim.paused)return;
+  physUpdate(dt);phaseTick(dt);drawStep(dt);AU.update();
+  alarmAcc+=dt;if(alarmAcc>0.5){alarmAcc=0;evalAlarms();}renderNums();}
+requestAnimationFrame(frame);
+window.addEventListener('resize',setupCanvases);
+$('#btnSilence').onclick=()=>{AU.silencedUntil=performance.now()/1000+120;evalAlarms();};
+$('#btnAudio').onclick=e=>{AU.on=!AU.on;e.target.classList.toggle('active',AU.on);};
+$('#btnVoice').onclick=e=>{AU.voice=!AU.voice;e.target.classList.toggle('active',AU.voice);if(!AU.voice&&window.speechSynthesis)speechSynthesis.cancel();};
+$('#btnPause').onclick=e=>{sim.paused=!sim.paused;e.target.textContent=sim.paused?'▶ Resume':'⏸ Pause';e.target.classList.toggle('active',sim.paused);};
+$('#btnRestart').onclick=()=>{$('#endOv').style.display='none';$('#startOv').style.display='flex';sim.running=false;if(window.speechSynthesis)speechSynthesis.cancel();};
+
+function startScenario(s){AU.init();if(AU.ctx.state==='suspended')AU.ctx.resume();if(window.speechSynthesis)speechSynthesis.cancel();
+  Object.assign(run,{scn:s,phase:null,phaseT:0,pending:false,decided:false,fired:new Set(),attempts:[],errors:0,wrongs:0,history:[],ended:false,inArrest:false,survivedArrest:false});
+  sim.t=0;sim.beats=[];sim.nextBeat=0.5;sim.respPhase=0;sim.cprActive=false;sim.lowMapTime=0;sim.labs={};sim.drips=s.drips.slice();sim.pacer=s.pacer||'';sim.paused=false;disp.hr=null;disp.sbp=null;alarmList=[];AU.silencedUntil=0;AU.nextAlarm=0;
+  sim.startClock=new Date().setHours(s.clock[0],s.clock[1],0,0);
+  setRhythm(s.rhythm||'sinus');setNow(s.initial);setIntubated(s.intubated!==false);
+  $('#bedLbl').textContent=s.bed;$('#ptLbl').textContent=s.patient.Name+' · '+s.patient.Age;$('#log').innerHTML='';$('#labs').innerHTML='';
+  renderPt();renderDrips();$('#btnPause').textContent='⏸ Pause';
+  $('#startOv').style.display='none';setupCanvases();sim.running=true;lastT=null;
+  log('Event',s.intro,'sys');setLabs(s.labs);enterPhase('p1');}
+function buildStart(){$('#scnList').innerHTML=SCENARIOS.map((s,i)=>'<div class="s" data-i="'+i+'"><div class="tag">'+s.tag+'</div><h4>'+s.title+'</h4><p>'+s.blurb+'</p></div>').join('');$('#scnList').querySelectorAll('.s').forEach(el=>el.onclick=()=>startScenario(SCENARIOS[+el.dataset.i]));}
+</script>
+<script>
+/* ---------------- shared arrest / ROSC / death phases (CSU-ALS) ---------------- */
+function arrestPhases(s){
+  const arrestT={sbp:22,dbp:14,pas:18,pad:12,spo2:70,etco2:12,ci:0.5,svo2:30,uo:0};
+  const roscSay=[{t:1,text:'Compressions going. Pads on, airway secured, calling for the resternotomy cart and the attending.'},{t:14,text:s.roscText,rhythm:s.roscRhythm||'sinus',targets:s.roscTargets,cpr:false},{t:22,text:'We have a pressure back. '+(s.roscAfter||'')}];
+  return {
+   arrestVF:{rhythm:'vf',targets:Object.assign({hr:0},arrestT),cpr:false,
+     say:[{t:0.5,text:'V-fib! No pulse. Pads are going on now — what do you want?'}],decisionAt:3,
+     decision:{prompt:'Cardiac arrest — ventricular fibrillation in a post-sternotomy patient. Immediate management?',options:[
+      {text:'Deliver up to three stacked shocks (150–200 J biphasic) immediately, before CPR. If unsuccessful: CPR, amiodarone 300 mg IV, and emergency resternotomy within 5 minutes. No 1 mg epinephrine boluses.',correct:true,cpr:true,next:'rosc',feedback:'The cardiac-surgery arrest protocol (CSU-ALS/CALS, endorsed by STS and EACTS) prioritizes three stacked shocks for VF/pulseless VT, withholds full-dose epinephrine (risk of catastrophic hypertension and bleeding on ROSC), and mandates resternotomy within 5 minutes if unsuccessful.'},
+      {text:'Standard ACLS: 2 minutes of CPR first, then a single shock, epinephrine 1 mg IV every 3–5 minutes.',correct:'partial',cpr:true,next:'rosc',d:{ct:250,sbp:40},feedback:'ROSC achieved, but the generic ACLS sequence delayed defibrillation, and 1 mg epinephrine produced rebound hypertension with a surge in chest tube output. Post-sternotomy patients follow the CSU-ALS protocol instead.'},
+      {text:'Amiodarone 300 mg IV and continue CPR; defibrillate only when the surgeon arrives.',correct:false,next:'death',cpr:true,feedback:'Delaying defibrillation in witnessed VF is a critical error — the probability of successful conversion falls roughly 10% per minute.'},
+      {text:'Precordial thump and wait for the attending surgeon before any invasive step.',correct:false,next:'death',feedback:'Waiting is fatal. Witnessed VF requires immediate defibrillation, and a resternotomy team should be mobilised in parallel.'}]}},
+   arrestPEA:{rhythm:'pea',targets:Object.assign({hr:38},arrestT),cpr:false,
+     say:[{t:0.5,text:'I\'ve lost the pulse. PEA on the monitor. Starting compressions — what\'s the plan?'}],decisionAt:3,
+     decision:{prompt:'Cardiac arrest — pulseless electrical activity in a post-sternotomy patient. Immediate management?',options:[
+      {text:'CPR now; exclude tension pneumothorax; switch pacing to maximum output if wires present; epinephrine only in small 50–100 mcg doses; emergency bedside resternotomy within 5 minutes.',correct:true,cpr:true,next:'rosc',feedback:'PEA after cardiac surgery is most often tamponade or hemorrhage, which only reopening the chest treats. CSU-ALS calls for resternotomy within 5 minutes, small-dose epinephrine only, and internal massage once open.'},
+      {text:'Standard ACLS: CPR with epinephrine 1 mg every 3–5 minutes for at least 20 minutes before considering resternotomy.',correct:false,next:'death',cpr:true,feedback:'Prolonged external compressions on a fresh sternotomy are ineffective for tamponade and risk graft avulsion and RV rupture; 1 mg epinephrine causes catastrophic hypertension on ROSC. Resternotomy must happen within 5 minutes.'},
+      {text:'2 L crystalloid wide open plus an ampule of bicarbonate; reassess after 10 minutes of compressions.',correct:false,next:'death',cpr:true,feedback:'Volume and bicarbonate do not treat the mechanical causes of post-operative PEA. The delay proved fatal.'},
+      {text:'Blind subxiphoid needle pericardiocentesis.',correct:false,next:'death',cpr:true,feedback:'Post-operative pericardial collections are clotted and loculated posteriorly; needle drainage is unreliable, risks graft injury, and delays definitive resternotomy.'}]}},
+   rosc:{cpr:true,say:roscSay,next:s.roscNext,nextAt:30,wait:'Resuscitation in progress…'},
+   death:{rhythm:'asystole',targets:Object.assign({hr:0,etco2:4},arrestT),cpr:true,say:[{t:2,text:'Still nothing… asystole.'},{t:7,text:'Stopping compressions. Time of death noted.',cpr:false,cls:'sys',who:'Event'}],end:'death',endAt:9,wait:'…'}
+  };
+}
+function mk(s){s.phases=Object.assign(arrestPhases(s),s.phases);s.phases.rosc.say[1].targets=s.roscTargets;return s;}
+
+const SCENARIOS=[];
+
+/* ================= 1. TAMPONADE ================= */
+SCENARIOS.push(mk({
+ tag:'POD 0 · CABG ×3',title:'The Chest Tubes Stopped',blurb:'67-year-old man 5 hours after on-pump CABG. Chest tube output was brisk, then abruptly stopped. Pressures are drifting.',
+ bed:'CTICU 7',clock:[22,40],rhythm:'sinus',arrestRhythm:'pea',
+ patient:{Name:'R. Okafor',Age:'67 M · 92 kg',Procedure:'CABG ×3 (LIMA-LAD, SVG-OM, SVG-PDA)',CPB:'96 min, XC 71 min','Time since OR':'5 h',Vent:'PRVC 500 / RR 14 / PEEP 5 / FiO₂ 0.4',History:'DM2, HTN, EF 45%, on aspirin + clopidogrel until 4 days pre-op'},
+ drips:['Norepinephrine 0.04 mcg/kg/min','Propofol 30 mcg/kg/min','Insulin 3 u/h'],
+ initial:{hr:92,sbp:112,dbp:64,cvp:10,pas:28,pad:14,spo2:98,rr:14,etco2:37,temp:36.1,ct:150,uo:55,ci:2.3,svo2:66,lact:1.8,ppv:5},
+ labs:{Hgb:9.8,Plt:142,INR:1.4,K:4.2,Mg:2.1,pH:7.36,PaCO2:40,Lactate:1.8},
+ intro:'22:40. You are called to bedside 7. Post-op course had been unremarkable; chest tubes drained 180 mL and 150 mL in the first two hours.',
+ roscText:'Chest is open at the bedside… large clot behind the heart, evacuating it now — the heart\'s filling. We have a rhythm and a pulse!',roscTargets:{hr:104,sbp:96,dbp:58,cvp:11,pas:28,pad:14,spo2:96,etco2:36,ci:2.0,svo2:60,ppv:5},roscAfter:'Going straight to the OR with an open chest.',roscNext:'p3',
+ phases:{
+  p1:{targets:{hr:118,sbp:88,dbp:62,cvp:17,pas:33,pad:19,ct:20,uo:15,ci:1.7,svo2:55,lact:2.9,ppv:18},
+   say:[{t:2,text:'Hey, can you look at him? His tubes were putting out 150 to 180 an hour and this last hour it\'s 20. I stripped them, nothing.'},
+        {t:16,text:'His pressure is drifting down and the CVP has climbed from 10 to 16. Norepi\'s at 0.04.'},
+        {t:28,text:'Urine\'s down to 15 this hour. He\'s tachy in the one-teens now.'}],
+   decisionAt:34,drift:{sbp:-0.22,dbp:-0.08,hr:0.12,cvp:0.06,pad:0.05,ci:-0.005,svo2:-0.05},
+   decision:{prompt:'Rising CVP, falling BP with narrowing pulse pressure, tachycardia, and chest tube output that has abruptly stopped. Your first actions?',options:[
+    {text:'Volume bolus (500 mL albumin), increase norepinephrine to hold MAP, STAT bedside echo, and notify the attending surgeon now.',correct:true,d:{sbp:10,dbp:3,hr:-6,ci:0.15},addDrips:['Norepinephrine ↑ 0.10 mcg/kg/min'],rmDrips:['Norepinephrine 0.04'],msg:'Albumin\'s in and norepi is up to 0.1. Echo tech is on the way and Dr. Lindqvist is coming in.',feedback:'Sudden cessation of previously brisk drainage plus rising CVP and falling BP is tamponade until proven otherwise. Temporize with volume and vasopressor, get an echo, and get the surgeon moving.'},
+    {text:'Furosemide 40 mg IV for the elevated CVP and low urine output.',correct:false,d:{sbp:-9,dbp:-3,cvp:-0.5,hr:5},feedback:'The high CVP here is not volume overload — it is impaired filling. Diuresing a tamponading heart removes the preload it depends on and precipitates collapse.'},
+    {text:'Esmolol infusion for the tachycardia to reduce myocardial oxygen demand.',correct:false,d:{sbp:-14,dbp:-4,hr:-18,ci:-0.3},feedback:'Tachycardia is the compensatory mechanism maintaining output when stroke volume is fixed by tamponade. Beta-blockade can be lethal here.'},
+    {text:'Increase propofol — he is probably agitated and fighting the ventilator.',correct:false,d:{sbp:-10,dbp:-3},feedback:'Nothing suggests agitation, and deepening sedation drops sympathetic tone and preload. Treat the hemodynamics, not the number.'}]}},
+  p2:{targets:{hr:126,sbp:80,dbp:58,cvp:20,pas:35,pad:21,ct:10,uo:8,ci:1.5,svo2:48,lact:4.1,ppv:20},
+   say:[{t:4,who:'Echo',text:'Bedside TTE: large posterior loculated pericardial collection compressing the RA and RV with diastolic collapse. IVC plethoric. LV underfilled and hyperdynamic.'},
+        {t:9,labs:{Lactate:4.1,Hgb:9.4,K:4.3,pH:7.28,PaCO2:46,BE:-6,SvO2:48}},
+        {t:17,text:'Norepi\'s at 0.1 and he\'s still soft — 80 over 58. PA diastolic and CVP are basically the same number now.'}],
+   decisionAt:24,drift:{sbp:-0.3,dbp:-0.1,hr:0.1,cvp:0.05,ci:-0.006,svo2:-0.06,lact:0.02},
+   decision:{prompt:'Echo confirms tamponade from a loculated posterior collection. Hemodynamics are worsening despite volume and pressors. Definitive management?',options:[
+    {text:'Emergent return to the OR for re-exploration and clot evacuation; blood bank and perfusion alerted; keep intubated; resternotomy set at bedside in case he arrests en route.',correct:true,d:{sbp:6},feedback:'Post-operative tamponade is a surgical emergency. Loculated, clotted blood is not amenable to needle drainage — the chest must be reopened. Anticipating arrest with a bedside sternotomy tray is standard.'},
+    {text:'Bedside echo-guided needle pericardiocentesis.',correct:false,d:{sbp:-6},feedback:'Post-operative collections are clotted and posterior; percutaneous drainage usually fails and risks graft injury while wasting time. Reopening the chest is definitive.'},
+    {text:'Start dobutamine 5 mcg/kg/min and reassess in 30 minutes.',correct:false,d:{sbp:-8,hr:10},feedback:'Inotropes cannot fix a heart that cannot fill. Thirty minutes of observation in decompensating tamponade is thirty minutes closer to arrest.'},
+    {text:'Aggressively strip and manipulate the chest tubes, transfuse 2 units PRBC, and re-evaluate in an hour.',correct:false,d:{sbp:-7,cvp:1},feedback:'The tubes are occluded by clot and the problem is behind the heart. Transfusion alone without decompression delays the definitive treatment.'}]}},
+  p3:{narr:'OR: resternotomy. 700 mL of clot evacuated from the posterior pericardium; bleeding from a side branch of the SVG-OM controlled with a clip. Chest closed with new drains.',
+   targets:{hr:88,sbp:118,dbp:66,cvp:9,pas:26,pad:12,spo2:98,etco2:37,ct:60,uo:70,ci:2.6,svo2:70,lact:2.0,ppv:4},drips:['Norepinephrine 0.03 mcg/kg/min','Propofol 30 mcg/kg/min','Insulin 3 u/h'],
+   say:[{t:6,text:'Back from the OR. Pressure\'s 118 over 66 on a whiff of norepi, CVP 9, urine picking up. Lactate\'s clearing.'}],end:'pass',endAt:22,wait:'Patient returned from the OR — stabilizing.'}
+ },
+ pearls:['Abrupt cessation of previously brisk chest tube drainage + rising CVP + falling BP = tamponade until proven otherwise.','Equalization of CVP and PA diastolic pressure and a narrow pulse pressure with pulsus paradoxus are classic; echo confirms but should not delay surgical consultation.','Temporize with volume and vasopressors; never diurese, beta-block, or deepen sedation.','Post-operative tamponade is treated by resternotomy, not needle pericardiocentesis.','If arrest occurs, follow CSU-ALS: resternotomy within 5 minutes, no 1 mg epinephrine boluses.']
+}));
+
+/* ================= 2. HEMORRHAGE ================= */
+SCENARIOS.push(mk({
+ tag:'POD 0 · AVR',title:'Filling the Pleur-evac',blurb:'71-year-old woman 3 hours after aortic valve replacement. Chest tube output 320 mL then 380 mL/hr. She is cold and coagulopathic — or is she surgically bleeding?',
+ bed:'CTICU 4',clock:[20,15],rhythm:'sinus',arrestRhythm:'pea',
+ patient:{Name:'M. Delgado',Age:'71 F · 64 kg',Procedure:'AVR (23 mm bioprosthesis) for severe AS',CPB:'118 min, XC 84 min','Time since OR':'3 h',Vent:'PRVC 420 / RR 14 / PEEP 5 / FiO₂ 0.5',History:'CKD 3a, AF on apixaban (held 3 days), aspirin'},
+ drips:['Norepinephrine 0.05 mcg/kg/min','Propofol 25 mcg/kg/min','Insulin 2 u/h'],
+ initial:{hr:100,sbp:104,dbp:58,cvp:7,pas:25,pad:11,spo2:97,rr:14,etco2:36,temp:35.3,ct:320,uo:40,ci:2.1,svo2:62,lact:2.4,ppv:8},
+ labs:{Hgb:8.1,Plt:88,INR:1.9,PTT:52,Fib:140,ACT:168,K:4.1,iCa:1.02,pH:7.33,Lactate:2.4},
+ intro:'20:15. Bedside 4. Coags and a gas were sent 20 minutes ago. Baseline ACT was 130 s.',
+ roscText:'Chest is open… the pericardium is full of blood. Suctioning, packing — there\'s a pulse!',roscTargets:{hr:112,sbp:92,dbp:52,cvp:6,pas:24,pad:11,spo2:96,etco2:35,ci:1.9,svo2:56,ct:150,ppv:6},roscAfter:'Massive transfusion running, straight to the OR.',roscNext:'p3',
+ phases:{
+  p1:{targets:{hr:116,sbp:92,dbp:52,cvp:5,pas:24,pad:10,ct:380,uo:25,ci:1.9,svo2:58,lact:2.9},
+   say:[{t:2,text:'Bed 4, the AVR. She put out 320 the first hour and it\'s 380 this hour, dark red, no clots. Her temp\'s 35.3.'},
+        {t:14,text:'Pressure\'s 92 over 52, heart rate 116, CVP\'s dropped to 5. Labs are back.'},
+        {t:24,text:'She\'s still shivering a bit under the Bair Hugger.'}],
+   decisionAt:30,drift:{sbp:-0.2,dbp:-0.07,hr:0.14,cvp:-0.03,ci:-0.004,svo2:-0.05,lact:0.01},
+   decision:{prompt:'Chest tube output 380 mL/hr, hypothermic, with thrombocytopenia, elevated INR/PTT, low fibrinogen, and an ACT above baseline. Initial management?',options:[
+    {text:'Active rewarming to >36 °C; protamine 50 mg for the elevated ACT; FFP 2 units, platelets 1 unit, cryoprecipitate for fibrinogen <150; calcium; transfuse PRBC to Hgb >8; notify the surgeon of the output.',correct:true,d:{sbp:10,dbp:4,hr:-8,cvp:2,temp:0.9,ci:0.15},addDrips:['Warmed products via rapid infuser'],msg:'Products are up on the rapid infuser. Repeat labs sent for an hour from now.',feedback:'Targeted correction of the identified deficits — heparin rebound (ACT), coagulation factors, platelets, fibrinogen, calcium, and temperature — while keeping the surgeon informed. Output >300 mL/hr warrants their awareness from the start.'},
+    {text:'Tranexamic acid 1 g and desmopressin 0.3 mcg/kg; re-check output in an hour.',correct:'partial',d:{sbp:2,hr:-2,temp:0.3},feedback:'Antifibrinolytics and DDAVP are reasonable adjuncts, but they do not replace the missing platelets, factors, and fibrinogen, reverse residual heparin, or rewarm her. Correction was delayed.'},
+    {text:'Increase norepinephrine to maintain MAP >65 and re-check in 2 hours.',correct:false,d:{sbp:8,dbp:4,ci:-0.15,svo2:-4,lact:0.4},feedback:'Vasoconstriction masks hypovolemia while the hemorrhage continues. Treating the MAP rather than the bleeding wastes two hours of blood loss.'},
+    {text:'Rapid 2 L crystalloid bolus for hypotension and tachycardia.',correct:false,d:{sbp:5,cvp:2,ct:60,temp:-0.4},feedback:'Large-volume crystalloid dilutes clotting factors, worsens hypothermia, and increases bleeding. Resuscitate hemorrhage with blood products.'}]}},
+  p2:{targets:{hr:124,sbp:84,dbp:48,cvp:4,pas:23,pad:9,ct:430,uo:12,ci:1.8,svo2:50,lact:4.6,temp:36.2},
+   say:[{t:4,text:'Products are in and she\'s warm now, 36.2. Repeat labs just came back.'},
+        {t:8,labs:{Hgb:7.6,Plt:132,INR:1.3,PTT:36,Fib:210,ACT:131,iCa:1.15,Lactate:4.6}},
+        {t:16,text:'But look at the Pleur-evac — she\'s over 400 an hour again, and it\'s bright red now. Pressure 84 over 48.'}],
+   decisionAt:24,drift:{sbp:-0.32,dbp:-0.12,hr:0.18,cvp:-0.02,ci:-0.006,svo2:-0.07,lact:0.03},
+   decision:{prompt:'Coagulopathy and hypothermia are corrected, yet output continues at >400 mL/hr with worsening hemodynamics. Next step?',options:[
+    {text:'This is surgical bleeding: activate the massive transfusion protocol, transfuse PRBC now, and return emergently to the OR for re-exploration — surgeon to bedside.',correct:true,d:{sbp:8,dbp:3,cvp:2,ci:0.1},addDrips:['MTP 1:1:1 via rapid infuser'],feedback:'Bleeding >400 mL/hr for an hour, or >200 mL/hr for 2–3 hours, despite corrected coagulation is surgical bleeding by definition and requires re-exploration. Roughly 3–5% of cardiac surgery patients need it.'},
+    {text:'Another 2 units FFP and a second platelet unit; re-check in an hour.',correct:false,d:{sbp:-6,ct:20},feedback:'The coagulation profile is now normal. More products treat a problem she no longer has while the surgical source keeps bleeding.'},
+    {text:'Increase PEEP to 15 cmH₂O to tamponade the mediastinal bleeding.',correct:false,d:{sbp:-10,dbp:-3,cvp:3,ci:-0.2},feedback:'High PEEP has never been shown to reduce mediastinal bleeding, and it drops venous return and cardiac output in a hypovolemic patient.'},
+    {text:'Clamp the chest tubes to let the mediastinum tamponade the bleeding.',correct:false,d:{sbp:-22,dbp:-6,cvp:12,pad:8,pas:6,ct:-380,ci:-0.6,ppv:15},msg:'Tubes are clamped… her CVP just shot up to 17 and the pressure is falling fast!',feedback:'Clamping drains converts hemorrhage into tamponade. This is dangerous and never indicated.'}]}},
+  p3:{narr:'OR: re-exploration. Brisk bleeding from the posterior aortotomy suture line repaired with pledgeted sutures; 900 mL evacuated from the pericardium and left pleura. 3 units PRBC, 2 FFP.',
+   targets:{hr:92,sbp:114,dbp:62,cvp:8,pas:26,pad:12,spo2:98,etco2:37,ct:50,uo:60,ci:2.4,svo2:68,lact:2.2,temp:36.6,ppv:5},drips:['Norepinephrine 0.03 mcg/kg/min','Propofol 25 mcg/kg/min','Insulin 2 u/h'],
+   say:[{t:6,text:'She\'s back. Output\'s 50 an hour and slowing, pressure 114 over 62, urine\'s 60. Lactate\'s trending down.'}],end:'pass',endAt:22,wait:'Patient returned from the OR — stabilizing.'}
+ },
+ pearls:['Correct the correctable first: temperature, residual heparin (ACT), platelets, factors, fibrinogen, and calcium — guided by labs or viscoelastic testing.','Excessive bleeding despite normal coagulation is surgical bleeding: >400 mL/hr ×1 h, >300 mL/hr ×2 h, or >200 mL/hr ×3 h are common re-exploration triggers.','Resuscitate hemorrhage with blood products, not crystalloid or vasopressors.','Never clamp chest tubes or use high PEEP to "tamponade" bleeding.','Falling CVP with rising heart rate and output distinguishes hemorrhage from tamponade — but the two frequently coexist.']
+}));
+</script>
+<script>
+/* ================= 3. POST-OP AF WITH RVR ================= */
+(function(){
+const D2={prompt:'She is now hemodynamically unstable in rapid AF — hypotensive, altered, and hypoxic. Management?',options:[
+ {text:'Synchronized cardioversion 150–200 J biphasic under brief procedural sedation, pads anterior-posterior, airway equipment and suction ready.',correct:true,rhythm:'sinus',set:{hr:92,sbp:118,dbp:70,spo2:96,cvp:9,pas:30,pad:15,ci:2.4,svo2:66},msg:'Synced, 150 joules… she\'s in sinus at 92. Pressure\'s coming up, 118 over 70.',feedback:'Unstable AF — hypotension, altered mentation, hypoxia — is an indication for immediate synchronized cardioversion regardless of duration. New post-operative AF within 48 hours does not require pre-procedural anticoagulation.'},
+ {text:'Diltiazem 20 mg IV push for rate control.',correct:false,d:{sbp:-14,dbp:-6,ci:-0.3,svo2:-5},feedback:'A negative inotrope and vasodilator in a hypotensive patient worsens shock. Pharmacologic rate control is for the stable patient; she needs electricity.'},
+ {text:'Repeat amiodarone 150 mg IV bolus and wait for it to work.',correct:false,d:{sbp:-6,dbp:-3},feedback:'Amiodarone takes time and drops blood pressure with bolus dosing. An unstable patient cannot wait for chemical conversion.'},
+ {text:'Unsynchronized defibrillation 200 J.',correct:false,arrest:'vf',feedback:'An unsynchronized shock delivered on the T wave (R-on-T) can induce ventricular fibrillation. Cardioversion of a perfusing rhythm must be synchronized.'}]};
+SCENARIOS.push(mk({
+ tag:'POD 2 · Mitral repair',title:'Something Fast on the Monitor',blurb:'58-year-old woman two days after mitral valve repair, extubated on the step-down side of the unit. She suddenly flips into a fast rhythm and feels lightheaded.',
+ bed:'CTICU 12',clock:[3,10],rhythm:'sinus',intubated:false,arrestRhythm:'vf',
+ patient:{Name:'S. Whitfield',Age:'58 F · 70 kg',Procedure:'Mitral valve repair (ring annuloplasty, P2 resection)',CPB:'104 min','Time since OR':'POD 2 (41 h)',Airway:'Extubated POD 1 · nasal cannula 4 L',History:'Severe MR, mild pHTN, no prior AF. Metoprolol 12.5 mg held this AM for SBP 98. Epicardial wires in place (backup VVI 40)'},
+ drips:['Dexmedetomidine 0.3 mcg/kg/h','Heparin 5000 u SC q8h (last 22:00)'],
+ initial:{hr:84,sbp:126,dbp:72,cvp:9,pas:30,pad:15,spo2:95,rr:18,etco2:38,temp:37.2,ct:15,uo:70,ci:2.6,svo2:68,lact:1.1,ppv:6},
+ labs:{Hgb:9.0,Plt:165,INR:1.2,K:3.4,Mg:1.6,Cr:0.9,Lactate:1.1},
+ intro:'03:10. Quiet night. Bed 12 has been in sinus rhythm since the OR; morning labs pending — the last set is displayed.',
+ roscText:'Shock two… she\'s back in sinus! Pulse is there.',roscRhythm:'sinus',roscTargets:{hr:96,sbp:108,dbp:64,spo2:94,cvp:10,ci:2.2,svo2:62},roscAfter:'She\'s starting to wake up.',roscNext:'p3',
+ phases:{
+  p1:{say:[{t:8,rhythm:'afib',targets:{hr:150,sbp:96,dbp:62,cvp:12,pas:34,pad:18,spo2:93,ci:2.0,svo2:60,ppv:7}},
+        {t:11,text:'Bed 12 just flipped into something fast — look at this! She says her heart is racing and she feels lightheaded.'},
+        {t:22,text:'BP is 96 over 62. She\'s awake, talking to me, a little anxious. Sats 93 on 4 liters.'},
+        {t:28,text:'I ran the morning labs early — potassium 3.4, mag 1.6.',labs:{K:3.4,Mg:1.6,Hgb:8.8,TSH:'pending'}}],
+   decisionAt:34,drift:{sbp:-0.1,dbp:-0.04,hr:0.05,spo2:-0.02},
+   decision:{prompt:'New atrial fibrillation with rapid ventricular response, rate ~150, BP 96/62, awake and symptomatic but perfusing. Potassium 3.4, magnesium 1.6. Management?',options:[
+    {text:'12-lead ECG; replete potassium (goal >4.0) and magnesium 2 g IV; amiodarone 150 mg IV over 10 min then 1 mg/min infusion; consider low-dose beta-blocker once BP allows.',correct:true,set:{hr:118,sbp:104,dbp:66,ci:2.2,svo2:63},addDrips:['Amiodarone 1 mg/min','KCl 20 mEq IV ×2','MgSO₄ 2 g IV'],msg:'Amio bolus is in and the mag is running. Rate\'s come down to the one-teens.',feedback:'Post-operative AF affects ~30% of cardiac surgery patients, peaking on days 2–3. In a hemodynamically stable patient: correct electrolytes, then amiodarone (rate and rhythm control, well suited to borderline BP) or beta-blockade if pressure permits.'},
+    {text:'Immediate synchronized cardioversion.',correct:'partial',rhythm:'sinus',set:{hr:90,sbp:120,dbp:70,spo2:95,ci:2.5,svo2:66},next:'p2b',msg:'Synced at 150… she\'s in sinus.',feedback:'She is symptomatic but stable, so pharmacologic management is first-line; cardioversion is reserved for instability. With potassium and magnesium unrepleted and no antiarrhythmic on board, early recurrence is very likely.'},
+    {text:'Adenosine 6 mg rapid IV push.',correct:false,pause:4,msg:'Whoa — she went flat for a few seconds and now she\'s right back in AF. She did not like that.',feedback:'Adenosine terminates AV-nodal re-entrant tachycardias; it does nothing for AF except cause a frightening pause, then the AF returns.'},
+    {text:'Digoxin 0.5 mg IV load alone and reassess in 4 hours.',correct:false,d:{hr:-4},feedback:'Digoxin has a slow onset (hours), is weak in high-adrenergic post-operative states, and does not address the electrolyte deficits driving the arrhythmia.'}]}},
+  p2:{say:[{t:4,text:'Potassium\'s running through the central line. Rate\'s 110 to 120 in AF, pressure\'s 104 over 66.'},
+        {t:20,rhythm:'afib',targets:{hr:168,sbp:74,dbp:44,spo2:89,cvp:14,pas:38,pad:22,ci:1.6,svo2:50,lact:2.4}},
+        {t:23,text:'Whoa — her rate just took off, 160s, 170s. Pressure 74 over 44. She\'s pale and she\'s not answering me.'}],
+   decisionAt:30,drift:{sbp:-0.3,dbp:-0.1,spo2:-0.08,ci:-0.005,svo2:-0.08,lact:0.02},decision:D2},
+  p2b:{rhythm:'sinus',say:[{t:3,text:'She\'s in sinus at 90 after the shock. K and mag are still low — I haven\'t got orders for those yet.'},
+        {t:18,rhythm:'afib',targets:{hr:170,sbp:74,dbp:44,spo2:89,cvp:14,pas:38,pad:22,ci:1.6,svo2:50,lact:2.4}},
+        {t:21,text:'And… she\'s back in AF. 170. Pressure 74 over 44, she\'s pale and not responding to me.'}],
+   decisionAt:28,drift:{sbp:-0.3,dbp:-0.1,spo2:-0.08,ci:-0.005,svo2:-0.08,lact:0.02},decision:D2},
+  p3:{targets:{hr:90,sbp:120,dbp:70,spo2:96,cvp:9,pas:30,pad:15,ci:2.5,svo2:67,lact:1.6},
+   say:[{t:5,text:'She\'s waking up and asking what happened. Sinus at 90, 120 over 70, sats 96.'},{t:12,labs:{K:3.9,Mg:2.4,Trop:0.9,Lactate:1.6}}],
+   decisionAt:18,
+   decision:{prompt:'Converted to sinus rhythm, hemodynamically recovered. Plan for the next 24 hours?',options:[
+    {text:'Continue amiodarone infusion (1 mg/min ×6 h, then 0.5 mg/min); keep K >4.0 and Mg >2.0; resume beta-blocker as BP allows; check pacing wire function; anticoagulation only if AF recurs or persists beyond 48 h, weighing bleeding risk.',correct:true,feedback:'Recurrence after a single episode is common (30–50%). Maintenance antiarrhythmic therapy plus electrolyte optimization and early beta-blocker resumption is standard; anticoagulation is decided on recurrence/duration and surgical bleeding risk.'},
+    {text:'Stop all antiarrhythmics now that she is in sinus rhythm.',correct:false,rhythm:'afib',set:{hr:132,sbp:100,dbp:64},msg:'She\'s back in AF at 130. Pressure\'s holding for now.',feedback:'Post-operative AF recurs in a large proportion of patients without maintenance therapy. She is back in AF — restart the amiodarone.'},
+    {text:'Start a therapeutic heparin infusion immediately.',correct:false,d:{ct:120},msg:'Heparin\'s running… her chest tube has picked up, it\'s bloody again.',feedback:'Full anticoagulation on POD 2 after a single brief AF episode carries a real bleeding and tamponade risk; guidelines suggest anticoagulation when AF persists or recurs beyond about 48 hours.'},
+    {text:'Transfer her to the telemetry floor now — the problem is solved.',correct:false,feedback:'She just required electrical cardioversion for hemodynamic instability. She needs ICU-level monitoring for recurrence while antiarrhythmics load.'}]}},
+  p4:{say:[{t:4,text:'Amio\'s running, potassium\'s 4.2 on the repeat. She\'s comfortable and in sinus.'}],end:'pass',endAt:18,wait:'Stable in sinus rhythm.'}
+ },
+ pearls:['Post-operative AF peaks on days 2–3 and affects up to a third of cardiac surgery patients.','Stable AF: correct K and Mg, then amiodarone or beta-blockade. Unstable AF: synchronized cardioversion immediately.','Adenosine does not treat AF; digoxin is slow and weak in the post-operative adrenergic state.','Never deliver an unsynchronized shock to a perfusing rhythm — R-on-T can precipitate VF.','Continue maintenance antiarrhythmic therapy after conversion; anticoagulate when AF persists or recurs beyond ~48 h, balancing surgical bleeding risk.']
+}));
+SCENARIOS[2].phases.p3.decision.options[0].next='p4';SCENARIOS[2].phases.p1.decision.options[0].next='p2';SCENARIOS[2].phases.p2.decision.options[0].next='p3';SCENARIOS[2].phases.p2b.decision.options[0].next='p3';
+SCENARIOS[0].phases.p1.decision.options[0].next='p2';SCENARIOS[0].phases.p2.decision.options[0].next='p3';
+SCENARIOS[1].phases.p1.decision.options[0].next='p2';SCENARIOS[1].phases.p1.decision.options[1].next='p2';SCENARIOS[1].phases.p2.decision.options[0].next='p3';
+})();
+
+/* ================= 4. RV FAILURE / LOW CARDIAC OUTPUT ================= */
+SCENARIOS.push(mk({
+ tag:'POD 0 · Redo MVR + TV repair',title:'The Right Side Is Failing',blurb:'63-year-old man 6 hours after redo mitral valve replacement with tricuspid repair after a long bypass run. CVP climbing, PA pressures high, urine output falling, lactate rising.',
+ bed:'CTICU 2',clock:[1,30],rhythm:'paced',arrestRhythm:'pea',pacer:'AV sequential (DDD) 80/min via epicardial wires',
+ patient:{Name:'D. Nakamura',Age:'63 M · 81 kg',Procedure:'Redo MVR (mechanical) + tricuspid ring annuloplasty',CPB:'212 min, XC 148 min','Time since OR':'6 h',Vent:'PRVC 480 / RR 16 / PEEP 8 / FiO₂ 0.6',History:'Prior MV repair 2016, severe MR + TR, pulmonary hypertension (PASP 58 pre-op), RV moderately dilated pre-op'},
+ drips:['Epinephrine 0.04 mcg/kg/min','Norepinephrine 0.08 mcg/kg/min','Propofol 20 mcg/kg/min','Insulin 4 u/h'],
+ initial:{hr:80,sbp:96,dbp:56,cvp:17,pas:50,pad:27,spo2:94,rr:16,etco2:34,temp:36.0,ct:90,uo:15,ci:1.7,svo2:52,lact:3.4,ppv:6},
+ labs:{Hgb:9.6,Plt:110,INR:1.5,K:4.4,Mg:2.0,pH:7.26,PaCO2:52,PaO2:78,BE:-5,Lactate:3.4,SvO2:52},
+ intro:'01:30. Bed 2. A long redo case; he came out AV-paced at 80 on epinephrine and norepinephrine. Continuous cardiac output PA catheter in place.',
+ roscText:'Chest open… RV is distended and barely moving. Internal massage, epi 100 mcg… there\'s a rhythm and a pressure!',roscRhythm:'paced',roscTargets:{hr:90,sbp:88,dbp:54,cvp:16,pas:46,pad:25,spo2:93,etco2:33,ci:1.8,svo2:52},roscAfter:'ECMO team is on their way.',roscNext:'p3',
+ phases:{
+  p1:{targets:{sbp:88,dbp:52,cvp:20,pas:56,pad:30,spo2:92,uo:8,ci:1.5,svo2:46,lact:4.2},
+   say:[{t:2,text:'Bed 2, the redo mitral. His pressure\'s been drifting, CVP\'s climbing — it\'s 19 now — and the PA pressures are in the 50s. Urine\'s 8 mL this hour.'},
+        {t:15,text:'Epi\'s at 0.04, norepi 0.08. Latest gas: pH 7.26, CO2 52, PaO2 78, lactate 4.2.',labs:{pH:7.26,PaCO2:52,PaO2:78,BE:-5,Lactate:4.2}},
+        {t:26,text:'SvO2 is down to 46 on the PA cath. CI reads 1.5.'}],
+   decisionAt:32,drift:{sbp:-0.15,dbp:-0.05,cvp:0.03,pas:0.03,pad:0.02,ci:-0.004,svo2:-0.05,lact:0.015},
+   decision:{prompt:'High CVP, high PA pressures, low cardiac index, hypercarbic acidosis, falling urine output — a right ventricular failure picture. First-line management?',options:[
+    {text:'Reduce RV afterload: start inhaled epoprostenol (or nitric oxide) and milrinone 0.375 mcg/kg/min; increase minute ventilation to correct hypercarbia and acidosis; keep PEEP moderate; add vasopressin to maintain MAP; bedside TEE.',correct:true,d:{cvp:-3,pas:-9,pad:-5,sbp:8,dbp:3,ci:0.35,svo2:9,etco2:-6,spo2:2},addDrips:['Inhaled epoprostenol 50 ng/kg/min','Milrinone 0.375 mcg/kg/min','Vasopressin 0.04 u/min'],msg:'Epoprostenol\'s on the vent circuit and milrinone\'s up. Rate turned up to 20 and tidal volume to 520.',feedback:'RV failure after mitral/tricuspid surgery with pre-existing pulmonary hypertension is treated by lowering pulmonary vascular resistance (inhaled pulmonary vasodilators, correction of hypercarbia/acidosis/hypoxia), inodilators, and maintaining coronary perfusion pressure with a pressor that does not raise PVR (vasopressin).'},
+    {text:'1 L crystalloid bolus for hypotension.',correct:false,d:{cvp:4,sbp:-6,dbp:-2,ci:-0.2,svo2:-4},feedback:'The failing RV is already over-distended (CVP 20). More volume shifts the septum leftward, further impairing LV filling, and drops output.'},
+    {text:'Phenylephrine 100 mcg boluses and start an infusion for MAP.',correct:false,d:{sbp:6,pas:6,pad:4,ci:-0.25,svo2:-5},feedback:'Pure alpha-agonism raises pulmonary vascular resistance and RV afterload. MAP briefly looks better while cardiac output falls further.'},
+    {text:'Increase PEEP to 15 cmH₂O to fix the oxygenation.',correct:false,d:{cvp:3,sbp:-9,dbp:-3,ci:-0.2,spo2:1},feedback:'High PEEP raises pulmonary vascular resistance and RV afterload while reducing venous return — a poor trade for a marginal SpO₂ gain in RV failure.'}]}},
+  p2:{say:[{t:4,text:'CVP\'s down to 17, PA\'s 46 over 24. CI\'s reading 1.9 now. Repeat gas is better.',labs:{pH:7.32,PaCO2:44,PaO2:92,Lactate:3.8,SvO2:55}},
+        {t:16,text:'He\'s still AV-paced at 80 — anything you want changed on the pacer?'}],
+   decisionAt:22,
+   decision:{prompt:'Improving but still marginal: CI 1.9, SvO₂ 55. He is AV-paced at 80/min. Adjustment?',options:[
+    {text:'Increase the paced rate to 100/min with AV-sequential pacing (optimize AV delay); repeat TEE to confirm RV function and exclude tamponade.',correct:true,set:{hr:100},d:{ci:0.4,sbp:8,dbp:3,cvp:-2,svo2:6,uo:15},pacer:'AV sequential (DDD) 100/min',msg:'Paced at 100. CI\'s coming up, 2.2 now, SvO2 60.',feedback:'With a failing RV, stroke volume is fixed and cardiac output is rate-dependent. Increasing the paced rate to 90–110 while preserving AV synchrony is a cheap, effective intervention.'},
+    {text:'Decrease pacing to 60/min to allow more diastolic filling time.',correct:false,set:{hr:60},d:{ci:-0.3,sbp:-8,svo2:-5},pacer:'AV sequential (DDD) 60/min',feedback:'The RV is already over-filled. Slowing the rate lowers cardiac output further — the opposite of what he needs.'},
+    {text:'Metoprolol 5 mg IV to reduce myocardial oxygen demand.',correct:false,d:{ci:-0.4,sbp:-14,dbp:-4,svo2:-6},feedback:'Negative inotropy in cardiogenic shock is dangerous. Oxygen demand concerns do not override the need for output.'},
+    {text:'Furosemide 80 mg IV to bring the CVP down.',correct:false,d:{sbp:-7,cvp:-1,uo:20},feedback:'Diuresis has a role once perfusion is restored, but in a hypotensive, oliguric patient it risks further hypotension and AKI. Decongest after you have output.'}]}},
+  p3:{targets:{hr:100,sbp:104,dbp:60,cvp:14,pas:42,pad:22,spo2:96,ci:2.3,svo2:62,lact:2.6,uo:35},
+   say:[{t:4,text:'Rate 100 paced, CI 2.3, SvO2 62, lactate 3.1 and then 2.6. Urine\'s 35 this hour.',labs:{Lactate:2.6,SvO2:62,pH:7.35}},
+        {t:14,who:'Echo',text:'TEE: RV moderately dilated with improved but reduced function (TAPSE 12 mm), no pericardial collection, mechanical MVR well seated, mild residual TR.'}],
+   decisionAt:20,
+   decision:{prompt:'Stabilizing on inhaled pulmonary vasodilator, milrinone, epinephrine, vasopressin, and pacing at 100. Plan?',options:[
+    {text:'Continue current support without weaning tonight; set explicit escalation triggers (CI <2.0, rising lactate, escalating pressor need) for early mechanical support — RVAD or VA-ECMO — and involve the MCS team now.',correct:true,feedback:'Escalation to mechanical support should be planned early with clear criteria; outcomes are far worse when MCS follows an arrest. Weaning is for tomorrow, once lactate normalizes.'},
+    {text:'Wean the milrinone and inhaled epoprostenol now that the numbers have improved.',correct:false,d:{cvp:4,pas:8,pad:5,sbp:-10,ci:-0.5,svo2:-8},addDrips:['Milrinone ↓ off','Epoprostenol ↓ off'],msg:'Weaned them down… and the CVP is back up to 18, pressure\'s falling.',feedback:'He improved because of these therapies. Rebound pulmonary hypertension after abrupt withdrawal of inhaled vasodilators is well described.'},
+    {text:'Plan extubation within the hour to reduce sedation requirements.',correct:false,d:{sbp:-6,ci:-0.2},feedback:'He remains in cardiogenic shock on multiple agents, and the inhaled pulmonary vasodilator depends on the ventilator circuit. Extubation is premature.'},
+    {text:'Cannulate for VA-ECMO now.',correct:'partial',feedback:'Having the MCS team engaged is right, but he is improving on medical therapy with a clearing lactate; immediate ECMO exposes him to cannulation and bleeding risk that criteria-based escalation avoids.'}]}},
+  p4:{say:[{t:4,text:'He\'s holding — CI 2.3, lactate 2.1, urine 40 an hour. MCS team knows about him.'}],end:'pass',endAt:18,wait:'Stable on current support.'}
+ },
+ pearls:['RV failure: high CVP, high PA pressures (unless the RV is too weak to generate them), low CI, low SvO₂, and oliguria — especially after long bypass runs and in pre-existing pulmonary hypertension.','Treat the afterload: inhaled pulmonary vasodilators, correct hypercarbia/acidosis/hypoxia, moderate PEEP; avoid pure alpha-agonists.','Inodilators (milrinone) plus vasopressin to hold coronary perfusion pressure without raising PVR.','Cardiac output is rate-dependent when stroke volume is fixed — pace at 90–110 with AV synchrony.','Decide on mechanical circulatory support early using explicit criteria, before arrest.']
+}));
+SCENARIOS[3].phases.p1.decision.options[0].next='p2';SCENARIOS[3].phases.p2.decision.options[0].next='p3';SCENARIOS[3].phases.p3.decision.options[0].next='p4';SCENARIOS[3].phases.p3.decision.options[3].next='p4';
+
+buildStart();
+if(window.speechSynthesis){AU.fillVoices();speechSynthesis.onvoiceschanged=()=>AU.fillVoices();}
+$('#voiceSel').onchange=()=>{AU.say('Voice check. Bed 7, BP is 96 over 58, CVP 12.');};
+</script>
+</body>
+</html>
