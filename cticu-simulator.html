@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="format-detection" content="telephone=no">
-<title>CTICU Simulator — Post-Cardiac Surgery Decompensation</title>
+<title>AFTERLOAD — Post-Cardiac Surgery Decompensation</title>
 <style>
 :root{--bg:#000;--panel:#0b0f14;--edge:#1c2530;--txt:#d7dee8;--dim:#7d8a99;
  --ecg:#00ff41;--abp:#ff4444;--pap:#ffd23f;--cvp:#4fa8ff;--spo2:#00e5ff;--co2:#e8e8e8;--temp:#ff9ecb;--co:#ffa94d;
@@ -111,6 +111,7 @@ table.labs tr.new td{background:rgba(79,168,255,.08)}
 .overlay .box{max-width:1100px;width:100%;margin:auto;background:#0b1119;border:1px solid #223142;border-radius:10px;padding:clamp(16px,3vw,28px);box-shadow:0 20px 80px #000}
 .overlay h1{margin:0 0 4px;font-size:clamp(18px,3.4vw,26px);letter-spacing:.5px;line-height:1.2}
 .overlay h1 span{color:#4fa8ff}
+.overlay h1 .brand{font-family:"SF Mono","Cascadia Code","Roboto Mono",ui-monospace,monospace;letter-spacing:.16em;text-shadow:0 0 12px rgba(79,168,255,.5)}
 .overlay p.lead{color:#9fb3c8;margin:0 0 16px;line-height:1.5;font-size:clamp(12.5px,1.5vw,14px)}
 .scn{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,230px),1fr));gap:10px}
 .scn .s{background:#0f1720;border:1px solid #223142;border-radius:8px;padding:12px 14px;cursor:pointer;transition:.15s;min-width:0}
@@ -273,7 +274,7 @@ table.labs tr.new td{background:rgba(79,168,255,.08)}
 </div>
 <div id="tapHint">⚠ Decision pending — tap Management</div>
 <div class="overlay" id="startOv"><div class="box">
- <h1>CTICU <span>Simulator</span> — Post-Cardiac Surgery Decompensation</h1>
+ <h1><span class="brand">AFTERLOAD</span> — CTICU Simulation</h1>
  <p class="lead">You are the fellow covering the cardiothoracic ICU overnight. Watch the monitor, listen to the nurse, and choose the right management at each decision point. Physiology responds to your choices — and keeps deteriorating while you hesitate. Three errors, or a MAP below 40 for too long, and your patient arrests. Ten scenarios, each with 5–10 decision points.</p>
  <div class="scn" id="scnList"></div>
  <p class="note">🔊 Turn your sound on. Pulse tone pitch tracks SpO₂; IEC-style alarm tones indicate priority. The nurse speaks through your browser's speech synthesis (toggle in the top bar or ⋯ menu). On phones, PAP and CVP traces are hidden by default (enable in ⋯); numerics scroll sideways. Based on STS/EACTS/CSU-ALS guidance; for education only — not clinical advice.</p>
@@ -418,7 +419,7 @@ function drawStep(dt){
 }
 
 /* ---------------- audio ---------------- */
-const AU={ctx:null,on:true,voice:true,silencedUntil:0,nextAlarm:0,prio:null,
+const AU={ctx:null,on:true,voice:true,voicePrimed:false,silencedUntil:0,nextAlarm:0,prio:null,
  init(){if(this.ctx)return;const C=window.AudioContext||window.webkitAudioContext;if(!C){this.on=false;return;}try{this.ctx=new C();}catch(e){this.on=false;return;}this.master=this.ctx.createGain();this.master.gain.value=0.6;this.master.connect(this.ctx.destination);
    const len=this.ctx.sampleRate*2,buf=this.ctx.createBuffer(1,len,this.ctx.sampleRate),d=buf.getChannelData(0);for(let i=0;i<len;i++)d[i]=rnd()*2-1;
    const src=this.ctx.createBufferSource();src.buffer=buf;src.loop=true;const bp=this.ctx.createBiquadFilter();bp.type='bandpass';bp.frequency.value=420;bp.Q.value=0.6;this.ventG=this.ctx.createGain();this.ventG.gain.value=0;src.connect(bp);bp.connect(this.ventG);this.ventG.connect(this.master);src.start();},
@@ -430,13 +431,17 @@ const AU={ctx:null,on:true,voice:true,silencedUntil:0,nextAlarm:0,prio:null,
  ping(){this.tone(1200,0.08,0.15,'sine',0);this.tone(1600,0.1,0.15,'sine',0.1);},
  vent(){if(!this.ctx)return;const p=sim.respPhase%1;let g=0;if(sim.intubated&&this.on&&V.rr>0){g=p<0.36?0.055*Math.sin(Math.PI*p/0.36):0.012;}this.ventG.gain.setTargetAtTime(g,this.ctx.currentTime,0.05);},
  update(){if(!this.ctx)return;this.vent();const now=performance.now()/1000;if(this.prio&&now>this.silencedUntil&&now>=this.nextAlarm&&this.on){this.alarm(this.prio);this.nextAlarm=now+(this.prio==='high'?3.2:this.prio==='med'?7:20);}},
- say(text){if(!this.voice||!window.speechSynthesis)return;
+ primeVoice(){if(this.voicePrimed||!window.speechSynthesis||!window.SpeechSynthesisUtterance)return;this.voicePrimed=true;
+   /* Mobile browsers require speech to be initiated directly by a tap.  A nearly
+      silent utterance here unlocks the engine for the nurse updates that follow. */
+   try{const u=new SpeechSynthesisUtterance('\u200B');u.volume=0.01;u.rate=10;speechSynthesis.speak(u);}catch(e){}},
+ say(text){if(!this.voice||!window.speechSynthesis||!window.SpeechSynthesisUtterance)return;
    let s=text.replace(/[—–]/g,', ').replace(/\.\.\./g,', ');
    const map=[[/\bCVP\b/g,'central venous pressure'],[/\bBP\b/g,'blood pressure'],[/\bSBP\b/g,'systolic blood pressure'],[/\bMAP\b/g,'mean arterial pressure'],[/\bPAP\b/g,'pulmonary artery pressure'],[/\bPA cath(eter)?\b/g,'pulmonary artery catheter'],[/\bPA pressures?\b/g,'pulmonary artery pressures'],[/\bPA\b/g,'pulmonary artery'],[/\bSvO2\b/g,'mixed venous oxygen saturation'],[/\bPaO2\b/g,'arterial oxygen tension'],[/\bPaCO2\b/g,'arterial carbon dioxide tension'],[/\betCO2\b/g,'end tidal carbon dioxide'],[/\bCO2\b/g,'carbon dioxide'],[/\bO2\b/g,'oxygen'],[/\bCI\b/g,'cardiac index'],[/\bCO\b/g,'cardiac output'],[/\bAF\b/g,'atrial fibrillation'],[/\bRVR\b/g,'rapid ventricular response'],[/\bAVR\b/g,'aortic valve replacement'],[/\bMVR\b/g,'mitral valve replacement'],[/\bMCS\b/g,'mechanical circulatory support'],[/\bECMO\b/g,'extracorporeal membrane oxygenation'],[/\bRVAD\b/g,'right ventricular assist device'],[/\bPEA\b/g,'pulseless electrical activity'],[/\bV-?fib\b/gi,'ventricular fibrillation'],[/\bVF\b/g,'ventricular fibrillation'],[/\bVT\b/g,'ventricular tachycardia'],[/\bCPR\b/g,'cardiopulmonary resuscitation'],[/\bROSC\b/g,'return of spontaneous circulation'],[/\bmL\b/g,'milliliters'],[/\bmcg\b/g,'micrograms'],[/\bmEq\b/g,'milliequivalents'],[/\bmmHg\b/g,'millimeters of mercury'],[/\bmag\b/gi,'magnesium'],[/\bMg\b/g,'magnesium'],[/\bK\b/g,'potassium'],[/\bCa\b/g,'calcium'],[/\bHgb\b/g,'hemoglobin'],[/\bPlt\b/g,'platelets'],[/\bINR\b/g,'I N R'],[/\bPTT\b/g,'partial thromboplastin time'],[/\bACT\b/g,'activated clotting time'],[/\bFib\b/g,'fibrinogen'],[/\bTSH\b/g,'thyroid stimulating hormone'],[/\bCr\b/g,'creatinine'],[/\bTEE\b/g,'transesophageal echo'],[/\bTTE\b/g,'transthoracic echo'],[/\bRA\b/g,'right atrium'],[/\bRV\b/g,'right ventricle'],[/\bLV\b/g,'left ventricle'],[/\bIVC\b/g,'inferior vena cava'],[/\bTR\b/g,'tricuspid regurgitation'],[/\bMR\b/g,'mitral regurgitation'],[/\bTAPSE\b/g,'tricuspid annular plane systolic excursion'],[/\bPRBC\b/g,'packed red blood cells'],[/\bFFP\b/g,'fresh frozen plasma'],[/\bMTP\b/g,'massive transfusion protocol'],[/\bpH\b/g,'P H'],[/\bnorepi\b/gi,'norepinephrine'],[/\bepi\b/gi,'epinephrine'],[/\bamio\b/gi,'amiodarone'],[/\bsats\b/gi,'oxygen saturation'],[/\bSpO2\b/g,'oxygen saturation'],[/\bICU\b/g,'intensive care unit'],[/\bCTICU\b/g,'cardiothoracic intensive care unit'],[/\bOR\b/g,'operating room'],[/\bPEEP\b/g,'positive end expiratory pressure'],[/\bPRVC\b/g,'pressure regulated volume control'],[/\bFiO2\b/g,'inspired oxygen fraction'],[/\bIV\b/g,'intravenous'],[/\bAV\b/g,'atrioventricular'],[/\bDDD\b/g,'dual chamber'],[/\bVVI\b/g,'ventricular demand'],[/\bCABG\b/g,'coronary artery bypass grafting'],[/\bSVG\b/g,'saphenous vein graft'],[/\bOM\b/g,'obtuse marginal'],[/\bPOD\b/g,'post operative day'],[/\bCPB\b/g,'cardiopulmonary bypass'],[/\bTXA\b/g,'tranexamic acid'],[/\bDDAVP\b/g,'desmopressin'],[/\bJ\b/g,'joules'],[/\bh\b/g,'hours'],[/(\d+) over (\d+)/g,'$1, over $2'],[/(\d)\/(\d)/g,'$1 over $2']];
    for(const[a,b]of map)s=s.replace(a,b);
    speechSynthesis.cancel();
-   const parts=s.replace(/([.!?])\s+/g,'$1|').split('|').filter(Boolean);
-   parts.forEach((pt,i)=>{const u=new SpeechSynthesisUtterance(pt);u.rate=0.98;u.pitch=1.0;u.volume=1;const v=this.pickVoice();if(v)u.voice=v;setTimeout(()=>speechSynthesis.speak(u),i*80);});},
+   const u=new SpeechSynthesisUtterance(s);u.rate=0.98;u.pitch=1.0;u.volume=1;const v=this.pickVoice();if(v)u.voice=v;
+   try{speechSynthesis.resume();speechSynthesis.speak(u);}catch(e){}},
  pickVoice(){const vs=speechSynthesis.getVoices();if(!vs.length)return null;const sel=document.getElementById('voiceSel');if(sel&&sel.value){const v=vs.find(x=>x.voiceURI===sel.value);if(v)return v;}
    const pref=[/Google US English/i,/Microsoft (Aria|Jenny|Ava|Emma|Sonia|Libby|Michelle).*Natural/i,/Microsoft (Aria|Jenny|Zira)/i,/Samantha/i,/Karen/i,/Moira/i,/Tessa/i,/Fiona/i,/female/i];
    const us=vs.filter(x=>/^en[-_]US/i.test(x.lang));const pool=us.length?us:vs.filter(x=>/^en/i.test(x.lang));for(const r of pref){const v=pool.find(x=>r.test(x.name));if(v)return v;}return pool[0]||null;},
@@ -574,11 +579,11 @@ $('#mVoiceSel').onchange=e=>{$('#voiceSel').value=e.target.value;};
 $('#voiceSel').onchange=e=>{$('#mVoiceSel').value=e.target.value;};
 function quitToMenu(){$('#endOv').style.display='none';$('#startOv').style.display='flex';$('#startOv').scrollTop=0;sim.running=false;AU.prio=null;$('#tapHint').classList.remove('show');if(window.speechSynthesis)speechSynthesis.cancel();}
 $('#btnRestart').onclick=quitToMenu;
-function unlockAudio(){AU.init();if(AU.ctx&&AU.ctx.state==='suspended'){AU.ctx.resume().catch(()=>{});}}
+function unlockAudio(){AU.init();AU.primeVoice();if(AU.ctx&&AU.ctx.state==='suspended'){AU.ctx.resume().catch(()=>{});}}
 ['touchstart','pointerdown','keydown','click'].forEach(ev=>document.addEventListener(ev,unlockAudio,{passive:true}));
 if(window.speechSynthesis){const fv=()=>{AU.fillVoices();const m=$('#mVoiceSel');m.innerHTML=$('#voiceSel').innerHTML;};fv();speechSynthesis.onvoiceschanged=fv;setTimeout(fv,800);}
 
-function startScenario(s){unlockAudio();if(window.speechSynthesis)speechSynthesis.cancel();
+function startScenario(s){if(window.speechSynthesis)speechSynthesis.cancel();unlockAudio();
   Object.assign(run,{scn:JSON.parse(JSON.stringify(s)),phase:null,phaseT:0,pending:false,decided:false,fired:new Set(),attempts:[],errors:0,wrongs:0,history:[],ended:false,inArrest:false,survivedArrest:false,decN:0});
   run.scn.phases=s.phases;run.decTotal=Object.values(s.phases).filter(p=>p.decision).length-2;
   sim.t=0;sim.beats=[];sim.nextBeat=0.5;sim.respPhase=0;sim.cprActive=false;sim.lowMapTime=0;sim.labs={};sim.drips=s.drips.slice();sim.pacer=s.pacer||'';sim.support=s.support||'';sim.paused=false;disp.hr=null;disp.sbp=null;alarmList=[];AU.silencedUntil=0;AU.nextAlarm=0;sim.flags={st:0,tpeak:0,qrsw:1,paceFail:false};
