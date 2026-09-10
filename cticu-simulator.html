@@ -431,10 +431,10 @@ const AU={ctx:null,on:true,voice:true,voicePrimed:false,silencedUntil:0,nextAlar
  ping(){this.tone(1200,0.08,0.15,'sine',0);this.tone(1600,0.1,0.15,'sine',0.1);},
  vent(){if(!this.ctx)return;const p=sim.respPhase%1;let g=0;if(sim.intubated&&this.on&&V.rr>0){g=p<0.36?0.055*Math.sin(Math.PI*p/0.36):0.012;}this.ventG.gain.setTargetAtTime(g,this.ctx.currentTime,0.05);},
  update(){if(!this.ctx)return;this.vent();const now=performance.now()/1000;if(this.prio&&now>this.silencedUntil&&now>=this.nextAlarm&&this.on){this.alarm(this.prio);this.nextAlarm=now+(this.prio==='high'?3.2:this.prio==='med'?7:20);}},
- primeVoice(){if(this.voicePrimed||!window.speechSynthesis||!window.SpeechSynthesisUtterance)return;this.voicePrimed=true;
-   /* Mobile browsers require speech to be initiated directly by a tap.  A nearly
-      silent utterance here unlocks the engine for the nurse updates that follow. */
-   try{const u=new SpeechSynthesisUtterance('\u200B');u.volume=0.01;u.rate=10;speechSynthesis.speak(u);}catch(e){}},
+ primeVoice(force){if((this.voicePrimed&&!force)||!window.speechSynthesis||!window.SpeechSynthesisUtterance)return;
+   /* Mobile browsers require speech to be initiated directly by the case-selection
+      tap. Use a real, inaudible utterance; blank text is ignored by some engines. */
+   try{speechSynthesis.resume();const u=new SpeechSynthesisUtterance('.');u.volume=0;u.rate=10;speechSynthesis.speak(u);this.voicePrimed=true;}catch(e){}},
  say(text){if(!this.voice||!window.speechSynthesis||!window.SpeechSynthesisUtterance)return;
    let s=text.replace(/[—–]/g,', ').replace(/\.\.\./g,', ');
    const map=[[/\bCVP\b/g,'central venous pressure'],[/\bBP\b/g,'blood pressure'],[/\bSBP\b/g,'systolic blood pressure'],[/\bMAP\b/g,'mean arterial pressure'],[/\bPAP\b/g,'pulmonary artery pressure'],[/\bPA cath(eter)?\b/g,'pulmonary artery catheter'],[/\bPA pressures?\b/g,'pulmonary artery pressures'],[/\bPA\b/g,'pulmonary artery'],[/\bSvO2\b/g,'mixed venous oxygen saturation'],[/\bPaO2\b/g,'arterial oxygen tension'],[/\bPaCO2\b/g,'arterial carbon dioxide tension'],[/\betCO2\b/g,'end tidal carbon dioxide'],[/\bCO2\b/g,'carbon dioxide'],[/\bO2\b/g,'oxygen'],[/\bCI\b/g,'cardiac index'],[/\bCO\b/g,'cardiac output'],[/\bAF\b/g,'atrial fibrillation'],[/\bRVR\b/g,'rapid ventricular response'],[/\bAVR\b/g,'aortic valve replacement'],[/\bMVR\b/g,'mitral valve replacement'],[/\bMCS\b/g,'mechanical circulatory support'],[/\bECMO\b/g,'extracorporeal membrane oxygenation'],[/\bRVAD\b/g,'right ventricular assist device'],[/\bPEA\b/g,'pulseless electrical activity'],[/\bV-?fib\b/gi,'ventricular fibrillation'],[/\bVF\b/g,'ventricular fibrillation'],[/\bVT\b/g,'ventricular tachycardia'],[/\bCPR\b/g,'cardiopulmonary resuscitation'],[/\bROSC\b/g,'return of spontaneous circulation'],[/\bmL\b/g,'milliliters'],[/\bmcg\b/g,'micrograms'],[/\bmEq\b/g,'milliequivalents'],[/\bmmHg\b/g,'millimeters of mercury'],[/\bmag\b/gi,'magnesium'],[/\bMg\b/g,'magnesium'],[/\bK\b/g,'potassium'],[/\bCa\b/g,'calcium'],[/\bHgb\b/g,'hemoglobin'],[/\bPlt\b/g,'platelets'],[/\bINR\b/g,'I N R'],[/\bPTT\b/g,'partial thromboplastin time'],[/\bACT\b/g,'activated clotting time'],[/\bFib\b/g,'fibrinogen'],[/\bTSH\b/g,'thyroid stimulating hormone'],[/\bCr\b/g,'creatinine'],[/\bTEE\b/g,'transesophageal echo'],[/\bTTE\b/g,'transthoracic echo'],[/\bRA\b/g,'right atrium'],[/\bRV\b/g,'right ventricle'],[/\bLV\b/g,'left ventricle'],[/\bIVC\b/g,'inferior vena cava'],[/\bTR\b/g,'tricuspid regurgitation'],[/\bMR\b/g,'mitral regurgitation'],[/\bTAPSE\b/g,'tricuspid annular plane systolic excursion'],[/\bPRBC\b/g,'packed red blood cells'],[/\bFFP\b/g,'fresh frozen plasma'],[/\bMTP\b/g,'massive transfusion protocol'],[/\bpH\b/g,'P H'],[/\bnorepi\b/gi,'norepinephrine'],[/\bepi\b/gi,'epinephrine'],[/\bamio\b/gi,'amiodarone'],[/\bsats\b/gi,'oxygen saturation'],[/\bSpO2\b/g,'oxygen saturation'],[/\bICU\b/g,'intensive care unit'],[/\bCTICU\b/g,'cardiothoracic intensive care unit'],[/\bOR\b/g,'operating room'],[/\bPEEP\b/g,'positive end expiratory pressure'],[/\bPRVC\b/g,'pressure regulated volume control'],[/\bFiO2\b/g,'inspired oxygen fraction'],[/\bIV\b/g,'intravenous'],[/\bAV\b/g,'atrioventricular'],[/\bDDD\b/g,'dual chamber'],[/\bVVI\b/g,'ventricular demand'],[/\bCABG\b/g,'coronary artery bypass grafting'],[/\bSVG\b/g,'saphenous vein graft'],[/\bOM\b/g,'obtuse marginal'],[/\bPOD\b/g,'post operative day'],[/\bCPB\b/g,'cardiopulmonary bypass'],[/\bTXA\b/g,'tranexamic acid'],[/\bDDAVP\b/g,'desmopressin'],[/\bJ\b/g,'joules'],[/\bh\b/g,'hours'],[/(\d+) over (\d+)/g,'$1, over $2'],[/(\d)\/(\d)/g,'$1 over $2']];
@@ -565,7 +565,7 @@ function syncControls(){$('#btnAudio').classList.toggle('active',AU.on);$('#mAud
   $('#btnPause').innerHTML=sim.paused?'▶<span class="lbl">Resume</span>':'⏸<span class="lbl">Pause</span>';$('#btnPause').classList.toggle('active',sim.paused);
   $('#mWaves').textContent=$('#monitor').classList.contains('allwaves')?'📉 Hide PAP / CVP traces':'📈 Show PAP / CVP traces';}
 function toggleAudio(){AU.on=!AU.on;if(AU.on)unlockAudio();syncControls();}
-function toggleVoice(){AU.voice=!AU.voice;if(!AU.voice&&window.speechSynthesis)speechSynthesis.cancel();syncControls();}
+function toggleVoice(){AU.voice=!AU.voice;if(!AU.voice&&window.speechSynthesis)speechSynthesis.cancel();if(AU.voice)AU.primeVoice(true);syncControls();}
 function togglePause(){sim.paused=!sim.paused;lastT=null;syncControls();}
 $('#btnSilence').onclick=()=>{AU.silencedUntil=performance.now()/1000+120;evalAlarms();};
 $('#btnAudio').onclick=toggleAudio;$('#mAudio').onclick=toggleAudio;
@@ -579,11 +579,11 @@ $('#mVoiceSel').onchange=e=>{$('#voiceSel').value=e.target.value;};
 $('#voiceSel').onchange=e=>{$('#mVoiceSel').value=e.target.value;};
 function quitToMenu(){$('#endOv').style.display='none';$('#startOv').style.display='flex';$('#startOv').scrollTop=0;sim.running=false;AU.prio=null;$('#tapHint').classList.remove('show');if(window.speechSynthesis)speechSynthesis.cancel();}
 $('#btnRestart').onclick=quitToMenu;
-function unlockAudio(){AU.init();AU.primeVoice();if(AU.ctx&&AU.ctx.state==='suspended'){AU.ctx.resume().catch(()=>{});}}
+function unlockAudio(){AU.init();if(AU.ctx&&AU.ctx.state!=='running'){AU.ctx.resume().catch(()=>{});}}
 ['touchstart','pointerdown','keydown','click'].forEach(ev=>document.addEventListener(ev,unlockAudio,{passive:true}));
 if(window.speechSynthesis){const fv=()=>{AU.fillVoices();const m=$('#mVoiceSel');m.innerHTML=$('#voiceSel').innerHTML;};fv();speechSynthesis.onvoiceschanged=fv;setTimeout(fv,800);}
 
-function startScenario(s){if(window.speechSynthesis)speechSynthesis.cancel();unlockAudio();
+function startScenario(s){if(window.speechSynthesis)speechSynthesis.cancel();AU.primeVoice(true);unlockAudio();
   Object.assign(run,{scn:JSON.parse(JSON.stringify(s)),phase:null,phaseT:0,pending:false,decided:false,fired:new Set(),attempts:[],errors:0,wrongs:0,history:[],ended:false,inArrest:false,survivedArrest:false,decN:0});
   run.scn.phases=s.phases;run.decTotal=Object.values(s.phases).filter(p=>p.decision).length-2;
   sim.t=0;sim.beats=[];sim.nextBeat=0.5;sim.respPhase=0;sim.cprActive=false;sim.lowMapTime=0;sim.labs={};sim.drips=s.drips.slice();sim.pacer=s.pacer||'';sim.support=s.support||'';sim.paused=false;disp.hr=null;disp.sbp=null;alarmList=[];AU.silencedUntil=0;AU.nextAlarm=0;sim.flags={st:0,tpeak:0,qrsw:1,paceFail:false};
