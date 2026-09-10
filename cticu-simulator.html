@@ -421,6 +421,17 @@ function drawStep(dt){
 /* ---------------- audio ---------------- */
 const AU={ctx:null,on:true,voice:true,voicePrimed:false,silencedUntil:0,nextAlarm:0,prio:null,
  init(){if(this.ctx)return;const C=window.AudioContext||window.webkitAudioContext;if(!C){this.on=false;return;}try{this.ctx=new C();}catch(e){this.on=false;return;}this.master=this.ctx.createGain();this.master.gain.value=0.6;this.master.connect(this.ctx.destination);
+   // Request media playback on Safari, including when the phone's silent switch is on.
+   try{if(navigator.audioSession)navigator.audioSession.type='playback';}catch(e){}
+   // A tap-started media element gives mobile Web Audio a media playback route.
+   // Keep the direct output until play() succeeds, and never use both outputs together.
+   if((navigator.maxTouchPoints>0)&&this.ctx.createMediaStreamDestination){
+     this.mediaDest=this.ctx.createMediaStreamDestination();this.master.connect(this.mediaDest);
+     this.player=document.createElement('audio');this.player.setAttribute('playsinline','');
+     this.player.srcObject=this.mediaDest.stream;this.player.preload='auto';
+     this.player.style.display='none';document.body.appendChild(this.player);
+   }
+   this.ctx.onstatechange=()=>{if(this.ctx.state==='interrupted')this.resume();};
    const len=this.ctx.sampleRate*2,buf=this.ctx.createBuffer(1,len,this.ctx.sampleRate),d=buf.getChannelData(0);for(let i=0;i<len;i++)d[i]=rnd()*2-1;
    const src=this.ctx.createBufferSource();src.buffer=buf;src.loop=true;const bp=this.ctx.createBiquadFilter();bp.type='bandpass';bp.frequency.value=420;bp.Q.value=0.6;this.ventG=this.ctx.createGain();this.ventG.gain.value=0;src.connect(bp);bp.connect(this.ventG);this.ventG.connect(this.master);src.start();},
  tone(f,dur,vol,type,when){if(!this.ctx||!this.on||this.ctx.state!=='running')return;const t0=this.ctx.currentTime+(when||0);const o=this.ctx.createOscillator();o.type=type||'sine';o.frequency.value=f;const g=this.ctx.createGain();g.gain.setValueAtTime(0,t0);g.gain.linearRampToValueAtTime(vol,t0+0.012);g.gain.setValueAtTime(vol,t0+dur-0.03);g.gain.linearRampToValueAtTime(0,t0+dur);o.connect(g);g.connect(this.master);o.start(t0);o.stop(t0+dur+0.02);},
@@ -430,8 +441,14 @@ const AU={ctx:null,on:true,voice:true,voicePrimed:false,silencedUntil:0,nextAlar
    else{this.tone(520,0.25,0.15,'triangle',0);}},
  ping(){this.tone(1200,0.08,0.15,'sine',0);this.tone(1600,0.1,0.15,'sine',0.1);},
  vent(){if(!this.ctx)return;const p=sim.respPhase%1;let g=0;if(sim.intubated&&this.on&&V.rr>0){g=p<0.36?0.055*Math.sin(Math.PI*p/0.36):0.012;}this.ventG.gain.setTargetAtTime(g,this.ctx.currentTime,0.05);},
- resume(){if(this.ctx&&this.ctx.state!=='running')this.ctx.resume().catch(()=>{});},
- restore(){if(!this.ctx)return;const resume=()=>this.ctx.resume().catch(()=>{});if(this.ctx.state==='running')this.ctx.suspend().then(resume).catch(resume);else resume();},
+ resume(){if(this.ctx&&this.ctx.state!=='running'&&this.ctx.state!=='closed'&&!this.resuming){
+   this.resuming=true;this.ctx.resume().catch(()=>{}).finally(()=>{this.resuming=false;});}},
+ unlock(){this.init();this.resume();
+   if(this.player&&this.player.paused&&!this.playPending){this.playPending=true;
+     this.player.play().then(()=>{if(!this.mediaRouted){this.master.disconnect(this.ctx.destination);this.mediaRouted=true;}})
+       .catch(()=>{if(this.mediaRouted){this.master.connect(this.ctx.destination);this.mediaRouted=false;}})
+       .finally(()=>{this.playPending=false;});}},
+ restore(){this.resume();},
  update(){if(!this.ctx)return;if(this.ctx.state!=='running'){this.resume();return;}this.vent();const now=performance.now()/1000;if(this.prio&&now>this.silencedUntil&&now>=this.nextAlarm&&this.on){this.alarm(this.prio);this.nextAlarm=now+(this.prio==='high'?3.2:this.prio==='med'?7:20);}},
  primeVoice(force){if((this.voicePrimed&&!force)||!window.speechSynthesis||!window.SpeechSynthesisUtterance)return;
    /* Mobile browsers require speech to be initiated directly by the case-selection
@@ -442,12 +459,12 @@ const AU={ctx:null,on:true,voice:true,voicePrimed:false,silencedUntil:0,nextAlar
    const map=[[/\bCVP\b/g,'central venous pressure'],[/\bBP\b/g,'blood pressure'],[/\bSBP\b/g,'systolic blood pressure'],[/\bMAP\b/g,'mean arterial pressure'],[/\bPAP\b/g,'pulmonary artery pressure'],[/\bPA cath(eter)?\b/g,'pulmonary artery catheter'],[/\bPA pressures?\b/g,'pulmonary artery pressures'],[/\bPA\b/g,'pulmonary artery'],[/\bSvO2\b/g,'mixed venous oxygen saturation'],[/\bPaO2\b/g,'arterial oxygen tension'],[/\bPaCO2\b/g,'arterial carbon dioxide tension'],[/\betCO2\b/g,'end tidal carbon dioxide'],[/\bCO2\b/g,'carbon dioxide'],[/\bO2\b/g,'oxygen'],[/\bCI\b/g,'cardiac index'],[/\bCO\b/g,'cardiac output'],[/\bAF\b/g,'atrial fibrillation'],[/\bRVR\b/g,'rapid ventricular response'],[/\bAVR\b/g,'aortic valve replacement'],[/\bMVR\b/g,'mitral valve replacement'],[/\bMCS\b/g,'mechanical circulatory support'],[/\bECMO\b/g,'extracorporeal membrane oxygenation'],[/\bRVAD\b/g,'right ventricular assist device'],[/\bPEA\b/g,'pulseless electrical activity'],[/\bV-?fib\b/gi,'ventricular fibrillation'],[/\bVF\b/g,'ventricular fibrillation'],[/\bVT\b/g,'ventricular tachycardia'],[/\bCPR\b/g,'cardiopulmonary resuscitation'],[/\bROSC\b/g,'return of spontaneous circulation'],[/\bmL\b/g,'milliliters'],[/\bmcg\b/g,'micrograms'],[/\bmEq\b/g,'milliequivalents'],[/\bmmHg\b/g,'millimeters of mercury'],[/\bmag\b/gi,'magnesium'],[/\bMg\b/g,'magnesium'],[/\bK\b/g,'potassium'],[/\bCa\b/g,'calcium'],[/\bHgb\b/g,'hemoglobin'],[/\bPlt\b/g,'platelets'],[/\bINR\b/g,'I N R'],[/\bPTT\b/g,'partial thromboplastin time'],[/\bACT\b/g,'activated clotting time'],[/\bFib\b/g,'fibrinogen'],[/\bTSH\b/g,'thyroid stimulating hormone'],[/\bCr\b/g,'creatinine'],[/\bTEE\b/g,'transesophageal echo'],[/\bTTE\b/g,'transthoracic echo'],[/\bRA\b/g,'right atrium'],[/\bRV\b/g,'right ventricle'],[/\bLV\b/g,'left ventricle'],[/\bIVC\b/g,'inferior vena cava'],[/\bTR\b/g,'tricuspid regurgitation'],[/\bMR\b/g,'mitral regurgitation'],[/\bTAPSE\b/g,'tricuspid annular plane systolic excursion'],[/\bPRBC\b/g,'packed red blood cells'],[/\bFFP\b/g,'fresh frozen plasma'],[/\bMTP\b/g,'massive transfusion protocol'],[/\bpH\b/g,'P H'],[/\bnorepi\b/gi,'norepinephrine'],[/\bepi\b/gi,'epinephrine'],[/\bamio\b/gi,'amiodarone'],[/\bsats\b/gi,'oxygen saturation'],[/\bSpO2\b/g,'oxygen saturation'],[/\bICU\b/g,'intensive care unit'],[/\bCTICU\b/g,'cardiothoracic intensive care unit'],[/\bOR\b/g,'operating room'],[/\bPEEP\b/g,'positive end expiratory pressure'],[/\bPRVC\b/g,'pressure regulated volume control'],[/\bFiO2\b/g,'inspired oxygen fraction'],[/\bIV\b/g,'intravenous'],[/\bAV\b/g,'atrioventricular'],[/\bDDD\b/g,'dual chamber'],[/\bVVI\b/g,'ventricular demand'],[/\bCABG\b/g,'coronary artery bypass grafting'],[/\bSVG\b/g,'saphenous vein graft'],[/\bOM\b/g,'obtuse marginal'],[/\bPOD\b/g,'post operative day'],[/\bCPB\b/g,'cardiopulmonary bypass'],[/\bTXA\b/g,'tranexamic acid'],[/\bDDAVP\b/g,'desmopressin'],[/\bJ\b/g,'joules'],[/\bh\b/g,'hours'],[/(\d+) over (\d+)/g,'$1, over $2'],[/(\d)\/(\d)/g,'$1 over $2']];
    for(const[a,b]of map)s=s.replace(a,b);
    speechSynthesis.cancel();
-   const u=new SpeechSynthesisUtterance(s);u.rate=0.98;u.pitch=1.0;u.volume=1;const v=this.pickVoice();if(v)u.voice=v;u.onend=()=>{this.restore();setTimeout(()=>this.restore(),100);};u.onerror=()=>this.restore();
+   const u=new SpeechSynthesisUtterance(s);u.rate=0.94;u.pitch=1.0;u.volume=1;u.lang='en-US';const v=this.pickVoice();if(v){u.voice=v;u.lang=v.lang;}this.utterance=u;u.onstart=()=>this.restore();u.onend=()=>{this.restore();setTimeout(()=>this.restore(),100);};u.onerror=()=>this.restore();
    try{speechSynthesis.resume();speechSynthesis.speak(u);}catch(e){}},
  pickVoice(){const vs=speechSynthesis.getVoices();if(!vs.length)return null;const sel=document.getElementById('voiceSel');if(sel&&sel.value){const v=vs.find(x=>x.voiceURI===sel.value);if(v)return v;}
-   const pref=[/Google US English/i,/Microsoft (Aria|Jenny|Ava|Emma|Sonia|Libby|Michelle).*Natural/i,/Microsoft (Aria|Jenny|Zira)/i,/Samantha/i,/Karen/i,/Moira/i,/Tessa/i,/Fiona/i,/female/i];
+   const pref=[/Samantha.*(Enhanced|Premium)|(Enhanced|Premium).*Samantha/i,/(Ava|Zoe|Samantha|Susan|Allison).*(Enhanced|Premium)/i,/Microsoft (Aria|Jenny|Ava|Emma).*Natural/i,/(Natural|Neural|Premium|Enhanced)/i,/Google US English/i,/Microsoft (Aria|Jenny|Ava|Emma|Sonia|Libby|Michelle).*Natural/i,/Microsoft (Aria|Jenny|Zira)/i,/Samantha/i,/Karen/i,/Moira/i,/Tessa/i,/Fiona/i,/female/i];
    const us=vs.filter(x=>/^en[-_]US/i.test(x.lang));const pool=us.length?us:vs.filter(x=>/^en/i.test(x.lang));for(const r of pref){const v=pool.find(x=>r.test(x.name));if(v)return v;}return pool[0]||null;},
- fillVoices(){const sel=document.getElementById('voiceSel');if(!sel||!window.speechSynthesis)return;let vs=speechSynthesis.getVoices().filter(x=>/^en[-_]US/i.test(x.lang));if(!vs.length)vs=speechSynthesis.getVoices().filter(x=>/^en/i.test(x.lang));if(!vs.length)return;const best=this.pickVoice();const cur=sel.value;sel.innerHTML=vs.map(v=>'<option value="'+v.voiceURI+'"'+((cur?v.voiceURI===cur:best&&v.voiceURI===best.voiceURI)?' selected':'')+'>'+v.name.replace(/Microsoft |Google |Online \(Natural\) - English \(.*\)|English \(.*\)/g,'').trim()+'</option>').join('');}
+ fillVoices(){const sel=document.getElementById('voiceSel');if(!sel||!window.speechSynthesis)return;let vs=speechSynthesis.getVoices().filter(x=>/^en[-_]US/i.test(x.lang));if(!vs.length)vs=speechSynthesis.getVoices().filter(x=>/^en/i.test(x.lang));if(!vs.length)return;const best=this.pickVoice();const cur=this.chosenVoice||'';if(!cur)sel.value='';const preferred=cur?best:this.pickVoice();sel.innerHTML=vs.map(v=>'<option value="'+v.voiceURI+'"'+((cur?v.voiceURI===cur:preferred&&v.voiceURI===preferred.voiceURI)?' selected':'')+'>'+v.name.replace(/Microsoft |Google |Online \(Natural\) - English \(.*\)|English \(.*\)/g,'').trim()+'</option>').join('');}
 };
 
 /* ---------------- alarms ---------------- */
@@ -577,12 +594,14 @@ $('#btnMore').onclick=e=>{e.stopPropagation();$('#moreMenu').classList.toggle('o
 document.addEventListener('click',e=>{if(!e.target.closest('#moreMenu')&&e.target.id!=='btnMore')$('#moreMenu').classList.remove('open');});
 $('#mWaves').onclick=()=>{$('#monitor').classList.toggle('allwaves');syncControls();scheduleResize();$('#moreMenu').classList.remove('open');};
 $('#mQuit').onclick=()=>{$('#moreMenu').classList.remove('open');quitToMenu();};
-$('#mVoiceSel').onchange=e=>{$('#voiceSel').value=e.target.value;};
-$('#voiceSel').onchange=e=>{$('#mVoiceSel').value=e.target.value;};
+$('#mVoiceSel').onchange=e=>{$('#voiceSel').value=e.target.value;AU.chosenVoice=e.target.value;};
+$('#voiceSel').onchange=e=>{$('#mVoiceSel').value=e.target.value;AU.chosenVoice=e.target.value;};
 function quitToMenu(){$('#endOv').style.display='none';$('#startOv').style.display='flex';$('#startOv').scrollTop=0;sim.running=false;AU.prio=null;$('#tapHint').classList.remove('show');if(window.speechSynthesis)speechSynthesis.cancel();}
 $('#btnRestart').onclick=quitToMenu;
-function unlockAudio(){AU.init();AU.resume();}
+function unlockAudio(){AU.unlock();}
 ['touchstart','pointerdown','keydown','click'].forEach(ev=>document.addEventListener(ev,unlockAudio,{passive:true}));
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&AU.ctx)AU.unlock();});
+window.addEventListener('pageshow',()=>{if(AU.ctx)AU.unlock();});
 if(window.speechSynthesis){const fv=()=>{AU.fillVoices();const m=$('#mVoiceSel');m.innerHTML=$('#voiceSel').innerHTML;};fv();speechSynthesis.onvoiceschanged=fv;setTimeout(fv,800);}
 
 function startScenario(s){if(window.speechSynthesis)speechSynthesis.cancel();unlockAudio();AU.primeVoice(true);
